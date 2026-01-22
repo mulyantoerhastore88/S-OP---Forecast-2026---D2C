@@ -1,4 +1,9 @@
 import streamlit as st
+import sys
+import os
+
+# Add modules directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 
 # Page configuration
 st.set_page_config(
@@ -43,7 +48,8 @@ if 'role' not in st.session_state:
 # Main app logic
 def main():
     if not st.session_state.authenticated:
-        from modules.auth import show_login_page
+        # Direct import after path is set
+        from auth import show_login_page
         show_login_page()
     else:
         # Show logout button in sidebar
@@ -61,15 +67,15 @@ def main():
         user_role = st.session_state.role
         
         if user_role == 'channel':
-            from modules.channel_view import show_channel_page
+            from channel_view import show_channel_page
             show_channel_page(st.session_state.username)
         
         elif user_role in ['brand1', 'brand2']:
-            from modules.brand_view import show_brand_page
+            from brand_view import show_brand_page
             show_brand_page(st.session_state.username, user_role)
         
         elif user_role == 'admin':
-            from modules.admin_view import show_admin_page
+            from admin_view import show_admin_page
             show_admin_page(st.session_state.username)
         
         else:
