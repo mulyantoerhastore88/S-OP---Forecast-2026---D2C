@@ -766,54 +766,104 @@ with tab2:
         with chart_col1:
             st.markdown("#### 📈 Monthly Volume Trend")
             
-            # Prepare chart data
-            chart_df = summary_df.copy()
-            chart_df['Type'] = chart_df['Month'].apply(
-                lambda x: 'Adjusted' if x in [m.replace('Cons_', '') for m in adjustment_months] else 'Projected'
-            )
+            # Buat DataFrame khusus untuk chart (tanpa formatting string)
+            chart_data = []
             
-            fig = px.line(
-                chart_df,
-                x='Month',
-                y=pd.to_numeric(chart_df['Total Volume'].str.replace(',', '')),
-                color='Type',
-                markers=True,
-                line_shape='spline',
-                title="12-Month Forecast Volume",
-                template='plotly_white'
-            )
+            for idx, row in summary_df.iterrows():
+                month_name = row['Month']
+                total_volume = row['Total Volume']  # Masih numerik di sini
+                
+                # Determine type
+                if month_name in [m.replace('Cons_', '') for m in adjustment_months]:
+                    chart_type = 'Adjusted'
+                elif month_name in projection_months:
+                    chart_type = 'Projected'
+                else:
+                    chart_type = 'Other'
+                
+                chart_data.append({
+                    'Month': month_name,
+                    'Volume': total_volume,
+                    'Type': chart_type
+                })
             
-            fig.update_layout(
-                height=400,
-                hovermode='x unified',
-                plot_bgcolor='white',
-                yaxis=dict(title="Volume (units)", gridcolor='#E5E7EB'),
-                xaxis=dict(title="Month", tickangle=45, gridcolor='#E5E7EB')
-            )
+            chart_df = pd.DataFrame(chart_data)
             
-            st.plotly_chart(fig, use_container_width=True)
+            # Debug info (bisa di-remove nanti)
+            # st.write("Chart Data Preview:", chart_df.head())
+            # st.write("Data types:", chart_df.dtypes)
+            
+            if not chart_df.empty:
+                fig = px.line(
+                    chart_df,
+                    x='Month',
+                    y='Volume',
+                    color='Type',
+                    markers=True,
+                    line_shape='spline',
+                    title="12-Month Forecast Volume Trend",
+                    template='plotly_white'
+                )
+                
+                fig.update_layout(
+                    height=400,
+                    hovermode='x unified',
+                    plot_bgcolor='white',
+                    yaxis=dict(
+                        title="Volume (units)", 
+                        gridcolor='#E5E7EB',
+                        tickformat=',.0f'
+                    ),
+                    xaxis=dict(
+                        title="Month", 
+                        tickangle=45, 
+                        gridcolor='#E5E7EB',
+                        type='category'  # Pastikan bulan sebagai kategori
+                    )
+                )
+                
+                # Format hover
+                fig.update_traces(
+                    hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<br>Type: %{data.name}'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No chart data available")
         
         with chart_col2:
             st.markdown("#### 📊 Brand Contribution (Adjusted Months)")
             
             # Calculate brand totals untuk adjusted months
             brand_data = []
-            for brand in results_df['Brand'].unique():
-                brand_qty = results_df[results_df['Brand'] == brand][
-                    [f"Cons_{m}" for m in adjustment_months if f"Cons_{m}" in results_df.columns]
-                ].sum().sum()
-                brand_data.append({'Brand': brand, 'Total Volume': brand_qty})
+            for brand in results_df['Brand'].dropna().unique():
+                brand_qty = 0
+                for month in adjustment_months:
+                    cons_col = f"Cons_{month}"
+                    if cons_col in results_df.columns:
+                        brand_mask = results_df['Brand'] == brand
+                        brand_qty += results_df.loc[brand_mask, cons_col].sum()
+                
+                if brand_qty > 0:  # Hanya tampilkan brand dengan volume > 0
+                    brand_data.append({
+                        'Brand': brand,
+                        'Total Volume': brand_qty
+                    })
             
             if brand_data:
                 brand_df = pd.DataFrame(brand_data)
-                brand_df = brand_df.sort_values('Total Volume', ascending=True).tail(10)  # Top 10 brands
+                brand_df = brand_df.sort_values('Total Volume', ascending=True)
+                
+                # Limit to top 10 jika terlalu banyak
+                if len(brand_df) > 10:
+                    brand_df = brand_df.tail(10)
                 
                 fig = px.bar(
                     brand_df,
                     y='Brand',
                     x='Total Volume',
                     orientation='h',
-                    title="Top 10 Brands by Adjusted Volume",
+                    title="Brand Contribution to Adjusted Forecast",
                     color='Total Volume',
                     color_continuous_scale='Viridis'
                 )
@@ -822,10 +872,16 @@ with tab2:
                     height=400,
                     showlegend=False,
                     plot_bgcolor='white',
-                    xaxis=dict(title="Total Volume (units)", gridcolor='#E5E7EB')
+                    xaxis=dict(
+                        title="Total Volume (units)", 
+                        gridcolor='#E5E7EB',
+                        tickformat=',.0f'
+                    )
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No brand contribution data available")
     
     # Chart 3: Value Contribution jika ada floor price
     if has_floor_price and len(summary_df) > 0:
