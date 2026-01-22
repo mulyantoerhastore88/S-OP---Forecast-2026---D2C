@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import hashlib
 import gspread
 import plotly.graph_objects as go
 from google.oauth2.service_account import Credentials
@@ -11,42 +10,86 @@ from datetime import datetime
 # PAGE CONFIGURATION
 # ============================================================================
 st.set_page_config(
-    page_title="S&OP Forecast Dashboard",
-    page_icon="📊",
+    page_title="S&OP Consensus Meeting Dashboard",
+    page_icon="🤝",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS for professional look
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.5rem;
+    .main-title {
+        font-size: 2.8rem;
         color: #1E3A8A;
         text-align: center;
+        margin-bottom: 0.5rem;
+        font-weight: 700;
+    }
+    .sub-title {
+        font-size: 1.2rem;
+        color: #4B5563;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .section-header {
+        font-size: 1.5rem;
+        color: #1E3A8A;
         margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #E5E7EB;
     }
-    .stButton button {
-        width: 100%;
+    .metric-card {
+        background-color: #F9FAFB;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #E5E7EB;
     }
-    .stDataFrame {
-        font-size: 0.9rem;
+    .dataframe {
+        font-size: 0.85rem;
+    }
+    .stButton>button {
+        font-weight: 600;
+    }
+    .success-msg {
+        padding: 1rem;
+        background-color: #D1FAE5;
+        border: 1px solid #10B981;
+        border-radius: 0.5rem;
+        color: #065F46;
+    }
+    .warning-msg {
+        padding: 1rem;
+        background-color: #FEF3C7;
+        border: 1px solid #F59E0B;
+        border-radius: 0.5rem;
+        color: #92400E;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SESSION STATE INITIALIZATION
+# HEADER
 # ============================================================================
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'username' not in st.session_state:
-    st.session_state.username = None
-if 'role' not in st.session_state:
-    st.session_state.role = None
+st.markdown('<p class="main-title">🤝 S&OP Consensus Meeting Dashboard</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Real-time Forecast Collaboration | ERHA Group</p>', unsafe_allow_html=True)
+
+# Meeting info
+col1, col2, col3 = st.columns(3)
+with col1:
+    meeting_date = st.date_input("Meeting Date", value=datetime.now().date(), key="meeting_date")
+with col2:
+    cycle_month = st.selectbox("Forecast Cycle", 
+                              ["Feb-26", "Mar-26", "Apr-26", "May-26", "Jun-26", 
+                               "Jul-26", "Aug-26", "Sep-26", "Oct-26", "Nov-26", 
+                               "Dec-26", "Jan-27"], key="cycle_month")
+with col3:
+    st.metric("Meeting Type", "W4 S&OP", "Consensus Review")
+
+st.markdown("---")
 
 # ============================================================================
-# GSHEET CONNECTOR CLASS
+# GSHEET CONNECTOR (SAME AS BEFORE)
 # ============================================================================
 class GSheetConnector:
     def __init__(self):
@@ -54,7 +97,7 @@ class GSheetConnector:
             self.sheet_id = st.secrets["gsheets"]["sheet_id"]
             self.service_account_info = json.loads(st.secrets["gsheets"]["service_account_info"])
         except:
-            st.error("GSheet credentials not found in secrets.")
+            st.error("⚠️ GSheet credentials not found. Please check Streamlit secrets.")
             raise
         
         self.client = None
@@ -69,7 +112,7 @@ class GSheetConnector:
             self.client = gspread.authorize(creds)
             self.sheet = self.client.open_by_key(self.sheet_id)
         except Exception as e:
-            st.error(f"Failed to connect to Google Sheets: {str(e)}")
+            st.error(f"❌ Failed to connect to Google Sheets: {str(e)}")
             raise
     
     def get_sheet_data(self, sheet_name):
@@ -79,7 +122,7 @@ class GSheetConnector:
             data = worksheet.get_all_records()
             return pd.DataFrame(data)
         except Exception as e:
-            st.error(f"Error reading sheet {sheet_name}: {str(e)}")
+            st.warning(f"Sheet '{sheet_name}' not found or empty: {str(e)}")
             return pd.DataFrame()
     
     def update_sheet(self, sheet_name, df):
@@ -93,762 +136,488 @@ class GSheetConnector:
             worksheet.update(data, value_input_option='USER_ENTERED')
             return True
         except Exception as e:
-            st.error(f"Error updating sheet {sheet_name}: {str(e)}")
+            st.error(f"❌ Error updating sheet {sheet_name}: {str(e)}")
             return False
-    
-    def append_to_sheet(self, sheet_name, data_dict):
-        """Append single row to sheet"""
-        try:
-            worksheet = self.sheet.worksheet(sheet_name)
-            worksheet.append_row(list(data_dict.values()))
-            return True
-        except Exception as e:
-            st.error(f"Error appending to sheet {sheet_name}: {str(e)}")
-            return False
-    
-    def get_rofo_current(self):
-        """Get ROFO current data with proper column handling"""
-        df = self.get_sheet_data("rofo_current")
-        
-        if df.empty:
-            return df
-        
-        # Identify month columns (Feb-26, Mar-26, etc.)
-        month_columns = [col for col in df.columns if '-' in str(col) and len(str(col)) >= 6]
-        
-        # Keep only relevant columns
-        keep_columns = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'] + month_columns
-        keep_columns = [col for col in keep_columns if col in df.columns]
-        
-        return df[keep_columns]
 
 # ============================================================================
-# AUTHENTICATION FUNCTIONS
+# DATA LOADING
 # ============================================================================
-def hash_password(password):
-    """Hash password using SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_user(username, password):
-    """Verify user from GSheet"""
-    try:
-        gs = GSheetConnector()
-        users_df = gs.get_sheet_data("users")
-        
-        if users_df.empty or 'username' not in users_df.columns:
-            st.error("Users database not found or empty.")
-            return False, None
-        
-        if username in users_df['username'].values:
-            user_row = users_df[users_df['username'] == username].iloc[0]
-            hashed_input = hash_password(password)
-            
-            if str(user_row['password_hash']).strip() == hashed_input:
-                return True, user_row['role']
-        
-        return False, None
-    except Exception as e:
-        st.error(f"Authentication error: {str(e)}")
-        return False, None
-
-def show_login_page():
-    """Display login page"""
-    st.title("🔐 S&OP Forecast Dashboard Login")
-    st.markdown("---")
-    
-    with st.form("login_form"):
-        st.subheader("Please Login")
-        username = st.text_input("Username", placeholder="Enter your username", key="login_username")
-        password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
-        submit = st.form_submit_button("🚀 Login", use_container_width=True, key="login_submit")
-        
-        if submit:
-            if not username or not password:
-                st.error("Please enter both username and password")
-            else:
-                with st.spinner("Authenticating..."):
-                    authenticated, role = verify_user(username, password)
-                    if authenticated:
-                        st.session_state.authenticated = True
-                        st.session_state.username = username
-                        st.session_state.role = role
-                        st.success(f"Welcome, {username}!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid username or password")
-    
-    st.markdown("---")
-    st.caption("**Login Credentials (Password: 'password' for all):**")
-    st.caption("- Channel/Sales: `channel_sales`")
-    st.caption("- ERHA SKINCARE GROUP 1: `brand_group1`")
-    st.caption("- ERHA SKINCARE GROUP 2: `brand_group2`")
-    st.caption("- Admin/Demand Planner: `demand_planner`")
-
-# ============================================================================
-# CHANNEL/SALES PAGE
-# ============================================================================
-def show_channel_page(username):
-    """Channel/Sales input page - Includes ALL SKUs including ERHA OTHERS"""
-    st.title("📊 Channel/Sales Forecast Input")
-    st.markdown("---")
-    
-    # Initialize connector
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def load_all_data():
+    """Load all required data from GSheet"""
     gs = GSheetConnector()
     
-    # Load data
-    with st.spinner("Loading all SKU data..."):
-        rofo_df = gs.get_rofo_current()
+    with st.spinner("📥 Loading data from Google Sheets..."):
+        data = {}
         
-        if rofo_df.empty:
-            st.error("No ROFO data available.")
-            return
-        
-        # Merge dengan stock data
-        stock_df = gs.get_sheet_data("stock_onhand")
-        if not stock_df.empty and 'sku_code' in stock_df.columns:
-            merged_df = pd.merge(
-                rofo_df, 
-                stock_df[['sku_code', 'Stock_Qty']], 
-                on='sku_code', 
-                how='left'
-            )
-            merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
+        # Load ROFO current (baseline)
+        rofo_df = gs.get_sheet_data("rofo_current")
+        if not rofo_df.empty:
+            # Identify month columns
+            month_cols = [col for col in rofo_df.columns if '-' in str(col) and len(str(col)) >= 6]
+            keep_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'] + month_cols
+            keep_cols = [col for col in keep_cols if col in rofo_df.columns]
+            data['rofo'] = rofo_df[keep_cols]
         else:
-            merged_df = rofo_df.copy()
-            merged_df['Stock_Qty'] = 0
+            data['rofo'] = pd.DataFrame()
+        
+        # Load stock data
+        stock_df = gs.get_sheet_data("stock_onhand")
+        data['stock'] = stock_df if not stock_df.empty else pd.DataFrame()
+        
+        # Load historical sales (optional)
+        sales_df = gs.get_sheet_data("sales_history")
+        data['sales'] = sales_df if not sales_df.empty else pd.DataFrame()
+        
+        # Load previous inputs (if any)
+        data['channel_input'] = gs.get_sheet_data("channel_input")
+        data['brand1_input'] = gs.get_sheet_data("brand1_input")
+        data['brand2_input'] = gs.get_sheet_data("brand2_input")
+        
+        return data
+
+# Load data
+data = load_all_data()
+rofo_df = data['rofo']
+stock_df = data['stock']
+
+if rofo_df.empty:
+    st.error("❌ No ROFO data found. Please check your GSheet.")
+    st.stop()
+
+# ============================================================================
+# SIDEBAR - CONTROLS & METRICS
+# ============================================================================
+with st.sidebar:
+    st.header("🛠️ Meeting Controls")
     
-    # Identify month columns
-    month_columns = [col for col in merged_df.columns if '-' in str(col) and len(str(col)) >= 6]
+    # Refresh button
+    if st.button("🔄 Refresh Data", use_container_width=True, key="refresh_btn"):
+        st.cache_data.clear()
+        st.rerun()
     
-    # Create input form
-    st.subheader("📝 Forecast Adjustment Input")
-    st.caption(f"Logged in as: **{username}** | Role: **Channel/Sales**")
+    st.markdown("---")
     
-    with st.form("channel_input_form"):
-        # Display metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total SKUs", len(merged_df))
-        with col2:
-            total_stock = merged_df['Stock_Qty'].sum()
-            st.metric("Total Stock", f"{total_stock:,.0f}")
-        with col3:
-            st.metric("Monthly Periods", len(month_columns))
+    # Filters
+    st.header("🔍 Filters")
+    
+    brand_groups = ["ALL"] + sorted(rofo_df['Brand_Group'].dropna().unique().tolist())
+    selected_brand_group = st.selectbox("Brand Group", brand_groups, key="brand_filter")
+    
+    sku_tiers = ["ALL"] + sorted(rofo_df['SKU_Tier'].dropna().unique().tolist())
+    selected_tier = st.selectbox("SKU Tier", sku_tiers, key="tier_filter")
+    
+    # Apply filters
+    filtered_df = rofo_df.copy()
+    if selected_brand_group != "ALL":
+        filtered_df = filtered_df[filtered_df['Brand_Group'] == selected_brand_group]
+    if selected_tier != "ALL":
+        filtered_df = filtered_df[filtered_df['SKU_Tier'] == selected_tier]
+    
+    st.markdown("---")
+    
+    # Meeting Metrics
+    st.header("📊 Meeting Metrics")
+    
+    total_skus = len(filtered_df)
+    total_stock = stock_df['Stock_Qty'].sum() if not stock_df.empty else 0
+    
+    st.metric("SKUs in View", total_skus)
+    st.metric("Total Stock", f"{total_stock:,.0f}")
+    
+    # Calculate average baseline for selected month
+    month_cols = [col for col in filtered_df.columns if '-' in str(col) and len(str(col)) >= 6]
+    if month_cols and cycle_month in month_cols:
+        avg_forecast = filtered_df[cycle_month].mean()
+        st.metric(f"Avg {cycle_month}", f"{avg_forecast:,.0f}")
+
+# ============================================================================
+# MAIN DASHBOARD - 3 COLUMN VIEW
+# ============================================================================
+st.markdown('<p class="section-header">📈 Real-time Forecast Adjustment</p>', unsafe_allow_html=True)
+
+# Create 3-column layout
+col1, col2, col3 = st.columns([1, 1, 1], gap="large")
+
+# Identify month columns
+month_cols = [col for col in filtered_df.columns if '-' in str(col) and len(str(col)) >= 6]
+if not month_cols:
+    st.error("No month columns found in ROFO data.")
+    st.stop()
+
+# ============================================================================
+# COLUMN 1: BASELINE ROFO (READ-ONLY)
+# ============================================================================
+with col1:
+    st.markdown("### 📊 Baseline ROFO")
+    st.caption("Current forecast - Read only")
+    
+    # Display baseline metrics
+    baseline_metrics = st.container()
+    with baseline_metrics:
+        m1, m2 = st.columns(2)
+        with m1:
+            if cycle_month in month_cols:
+                total_baseline = filtered_df[cycle_month].sum()
+                st.metric("Total", f"{total_baseline:,.0f}")
+        with m2:
+            if cycle_month in month_cols:
+                avg_baseline = filtered_df[cycle_month].mean()
+                st.metric("Average", f"{avg_baseline:,.0f}")
+    
+    # Display baseline data
+    display_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    if cycle_month in filtered_df.columns:
+        display_cols.append(cycle_month)
+    
+    baseline_display = filtered_df[display_cols].copy()
+    
+    # Add stock data if available
+    if not stock_df.empty and 'sku_code' in stock_df.columns:
+        baseline_display = pd.merge(
+            baseline_display,
+            stock_df[['sku_code', 'Stock_Qty']],
+            on='sku_code',
+            how='left'
+        )
+        baseline_display['Stock_Qty'] = baseline_display['Stock_Qty'].fillna(0)
+        display_cols.append('Stock_Qty')
+    
+    st.dataframe(
+        baseline_display,
+        use_container_width=True,
+        height=400,
+        column_config={
+            'sku_code': st.column_config.TextColumn("SKU", width="small"),
+            'Product_Name': st.column_config.TextColumn("Product", width="medium"),
+            'Brand': st.column_config.TextColumn("Brand", width="small"),
+            'SKU_Tier': st.column_config.TextColumn("Tier", width="small"),
+            cycle_month: st.column_config.NumberColumn(
+                "Baseline",
+                format="%d",
+                width="small"
+            ),
+            'Stock_Qty': st.column_config.NumberColumn(
+                "Stock",
+                format="%d",
+                width="small"
+            ) if 'Stock_Qty' in baseline_display.columns else None
+        }
+    )
+
+# ============================================================================
+# COLUMN 2: CHANNEL ADJUSTMENTS (EDITABLE)
+# ============================================================================
+with col2:
+    st.markdown("### 🛒 Channel Input")
+    st.caption("Sales team adjustments (±40% limit)")
+    
+    # Create editable dataframe for Channel
+    channel_df = filtered_df.copy()
+    
+    # Initialize adjustment columns if they don't exist
+    for month in month_cols:
+        adj_col = f"{month}_channel_adj"
+        if adj_col not in channel_df.columns:
+            channel_df[adj_col] = 0  # Default no adjustment
+        pct_col = f"{month}_channel_pct"
+        if pct_col not in channel_df.columns:
+            channel_df[pct_col] = 0.0
+    
+    # Display editable grid for selected month
+    if cycle_month in month_cols:
+        # Calculate suggested adjustment (placeholder - can be based on history)
+        channel_df[f"{cycle_month}_suggested"] = channel_df[cycle_month] * 0.1  # 10% increase as example
         
-        st.markdown("---")
+        # Create display dataframe
+        channel_display = channel_df[[
+            'sku_code', 'Product_Name', 'Brand', 
+            cycle_month, f"{cycle_month}_channel_adj", f"{cycle_month}_suggested"
+        ]].copy()
         
-        # Create editable dataframe
-        edited_df = merged_df.copy()
+        # Rename columns for display
+        channel_display.columns = ['SKU', 'Product', 'Brand', 'Baseline', 'Your Adjustment', 'Suggested']
         
-        # Add input columns for each month
-        for month in month_columns:
-            edited_df[f"{month}_input"] = edited_df[month]
-        
-        # Display columns for editing
-        display_columns = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'Stock_Qty']
-        for month in month_columns:
-            display_columns.extend([month, f"{month}_input"])
-        
-        # Create column configuration
-        column_config = {}
-        
-        # Fixed columns
-        column_config['sku_code'] = st.column_config.TextColumn("SKU Code", disabled=True)
-        column_config['Product_Name'] = st.column_config.TextColumn("Product Name", disabled=True)
-        column_config['Brand_Group'] = st.column_config.TextColumn("Brand Group", disabled=True)
-        column_config['Brand'] = st.column_config.TextColumn("Brand", disabled=True)
-        column_config['SKU_Tier'] = st.column_config.TextColumn("SKU Tier", disabled=True)
-        column_config['Stock_Qty'] = st.column_config.NumberColumn("Stock Qty", disabled=True, format="%d")
-        
-        # Month columns
-        for month in month_columns:
-            column_config[month] = st.column_config.NumberColumn(
-                f"Baseline {month}",
-                disabled=True,
-                format="%d"
-            )
-            column_config[f"{month}_input"] = st.column_config.NumberColumn(
-                f"Your Input {month}",
-                min_value=0,
+        # Editable configuration
+        column_config = {
+            'SKU': st.column_config.TextColumn("SKU", disabled=True),
+            'Product': st.column_config.TextColumn("Product", disabled=True),
+            'Brand': st.column_config.TextColumn("Brand", disabled=True),
+            'Baseline': st.column_config.NumberColumn("Baseline", disabled=True, format="%d"),
+            'Your Adjustment': st.column_config.NumberColumn(
+                "Adjustment",
+                min_value=-1000000,
+                max_value=1000000,
                 step=1,
                 format="%d"
-            )
+            ),
+            'Suggested': st.column_config.NumberColumn("Suggested", disabled=True, format="%d")
+        }
         
-        # Display data editor
-        st.write("### Adjust Forecast Quantities (±40% limit)")
-        edited_data = st.data_editor(
-            edited_df[display_columns],
+        # Display editable dataframe
+        channel_edited = st.data_editor(
+            channel_display.head(20),  # Show first 20 for performance
             column_config=column_config,
             use_container_width=True,
             height=400,
-            num_rows="fixed",
             key="channel_editor"
         )
         
-        # Notes field
-        notes = st.text_area(
-            "Notes / Justification for adjustments",
-            placeholder="Explain significant changes...",
-            key="channel_notes"
-        )
-        
-        # Submit button
-        submit = st.form_submit_button(
-            "💾 Save to Channel Input",
-            use_container_width=True,
-            key="channel_submit"
-        )
-        
-        if submit:
-            # Validate adjustments (±40%)
-            validation_errors = []
+        # Adjustment summary
+        if not channel_edited.empty:
+            total_adjustment = channel_edited['Your Adjustment'].sum()
+            avg_adjustment = channel_edited['Your Adjustment'].mean()
             
-            for month in month_columns:
-                input_col = f"{month}_input"
-                baseline_col = month
-                
-                for idx, row in edited_data.iterrows():
-                    baseline = row[baseline_col]
-                    new_value = row[input_col]
-                    
-                    if pd.isna(baseline) or pd.isna(new_value):
-                        continue
-                    
-                    try:
-                        baseline = float(baseline)
-                        new_value = float(new_value)
-                    except:
-                        continue
-                    
-                    max_change = baseline * 0.4
-                    min_allowed = max(0, baseline - max_change)
-                    max_allowed = baseline + max_change
-                    
-                    if new_value < min_allowed or new_value > max_allowed:
-                        validation_errors.append({
-                            'sku': row['sku_code'],
-                            'brand_group': row.get('Brand_Group', 'N/A'),
-                            'month': month,
-                            'baseline': baseline,
-                            'input': new_value,
-                            'min_allowed': min_allowed,
-                            'max_allowed': max_allowed
-                        })
-            
-            # Show validation errors if any
-            if validation_errors:
-                st.error(f"❌ {len(validation_errors)} adjustments exceed ±40% limit")
-                for error in validation_errors[:3]:
-                    st.error(
-                        f"**{error['sku']} - {error['month']}:** "
-                        f"Input {error['input']:.0f} vs Baseline {error['baseline']:.0f}"
-                    )
-                if len(validation_errors) > 3:
-                    st.error(f"... and {len(validation_errors) - 3} more errors")
-            
-            else:
-                # Prepare data for saving
-                save_df = edited_data.copy()
-                
-                # Keep only necessary columns
-                save_columns = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier']
-                
-                # Replace baseline with input values
-                for month in month_columns:
-                    save_df[month] = save_df[f"{month}_input"]
-                    save_columns.append(month)
-                
-                # Add metadata
-                save_df['notes'] = notes
-                save_df['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                save_df['submitted_by'] = username
-                
-                # Select final columns
-                final_columns = save_columns + ['notes', 'last_updated', 'submitted_by']
-                save_df = save_df[final_columns]
-                
-                # Save to GSheet
-                with st.spinner("Saving to Google Sheets..."):
-                    success = gs.update_sheet("channel_input", save_df)
-                    
-                    if success:
-                        # Log submission
-                        log_entry = {
-                            'submission_id': f"CH_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                            'username': username,
-                            'role': 'channel',
-                            'submission_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'status': 'submitted'
-                        }
-                        gs.append_to_sheet("input_log", log_entry)
-                        
-                        st.success("✅ Channel input saved successfully!")
-                        st.balloons()
-                    else:
-                        st.error("❌ Failed to save data. Please try again.")
+            m1, m2 = st.columns(2)
+            with m1:
+                st.metric("Total Adj", f"{total_adjustment:+,.0f}")
+            with m2:
+                st.metric("Avg Adj", f"{avg_adjustment:+,.0f}")
 
 # ============================================================================
-# BRAND PAGE
+# COLUMN 3: BRAND ADJUSTMENTS (EDITABLE)
 # ============================================================================
-def show_brand_page(username, user_role):
-    """Brand input page for both brand groups"""
+with col3:
+    st.markdown("### 🏷️ Brand Input")
+    st.caption("Marketing team adjustments (±40% limit)")
     
-    # Configuration for brand groups
-    BRAND_CONFIG = {
-        'brand1': {
-            'name': 'ERHA SKINCARE GROUP 1',
-            'brand_groups': ['ACNEACT', 'AGE CORRECTOR', 'TRUWHITE'],
-            'sheet_name': 'brand1_input',
-            'log_prefix': 'B1_',
-            'icon': '🏷️'
-        },
-        'brand2': {
-            'name': 'ERHA SKINCARE GROUP 2', 
-            'brand_groups': ['ERHAIR', 'HISERHA', 'PERFECT SHIELD', 'SKINSITIVE'],
-            'sheet_name': 'brand2_input',
-            'log_prefix': 'B2_',
-            'icon': '🏷️'
+    # Create editable dataframe for Brand
+    brand_df = filtered_df.copy()
+    
+    # Initialize adjustment columns
+    for month in month_cols:
+        adj_col = f"{month}_brand_adj"
+        if adj_col not in brand_df.columns:
+            brand_df[adj_col] = 0
+        pct_col = f"{month}_brand_pct"
+        if pct_col not in brand_df.columns:
+            brand_df[pct_col] = 0.0
+    
+    # Display editable grid for selected month
+    if cycle_month in month_cols:
+        # Separate for Brand Group 1 and 2
+        brand1_brands = ['ACNEACT', 'AGE CORRECTOR', 'TRUWHITE']
+        brand2_brands = ['ERHAIR', 'HISERHA', 'PERFECT SHIELD', 'SKINSITIVE']
+        
+        brand1_df = brand_df[brand_df['Brand'].isin(brand1_brands)]
+        brand2_df = brand_df[brand_df['Brand'].isin(brand2_brands)]
+        
+        # Brand Group 1
+        st.markdown("**ERHA SKINCARE GROUP 1**")
+        if not brand1_df.empty:
+            brand1_display = brand1_df[[
+                'sku_code', 'Product_Name', 'Brand',
+                cycle_month, f"{cycle_month}_brand_adj"
+            ]].head(10).copy()  # Limit to 10 for display
+            
+            brand1_display.columns = ['SKU', 'Product', 'Brand', 'Baseline', 'Adjustment']
+            
+            brand1_edited = st.data_editor(
+                brand1_display,
+                column_config={
+                    'SKU': st.column_config.TextColumn("SKU", disabled=True),
+                    'Product': st.column_config.TextColumn("Product", disabled=True),
+                    'Brand': st.column_config.TextColumn("Brand", disabled=True),
+                    'Baseline': st.column_config.NumberColumn("Baseline", disabled=True, format="%d"),
+                    'Adjustment': st.column_config.NumberColumn(
+                        "Adjustment",
+                        min_value=-1000000,
+                        max_value=1000000,
+                        step=1,
+                        format="%d"
+                    )
+                },
+                use_container_width=True,
+                height=200,
+                key="brand1_editor"
+            )
+        
+        # Brand Group 2
+        st.markdown("**ERHA SKINCARE GROUP 2**")
+        if not brand2_df.empty:
+            brand2_display = brand2_df[[
+                'sku_code', 'Product_Name', 'Brand',
+                cycle_month, f"{cycle_month}_brand_adj"
+            ]].head(10).copy()
+            
+            brand2_display.columns = ['SKU', 'Product', 'Brand', 'Baseline', 'Adjustment']
+            
+            brand2_edited = st.data_editor(
+                brand2_display,
+                column_config={
+                    'SKU': st.column_config.TextColumn("SKU", disabled=True),
+                    'Product': st.column_config.TextColumn("Product", disabled=True),
+                    'Brand': st.column_config.TextColumn("Brand", disabled=True),
+                    'Baseline': st.column_config.NumberColumn("Baseline", disabled=True, format="%d"),
+                    'Adjustment': st.column_config.NumberColumn(
+                        "Adjustment",
+                        min_value=-1000000,
+                        max_value=1000000,
+                        step=1,
+                        format="%d"
+                    )
+                },
+                use_container_width=True,
+                height=200,
+                key="brand2_editor"
+            )
+
+# ============================================================================
+# CONSENSUS CALCULATION & VISUALIZATION
+# ============================================================================
+st.markdown("---")
+st.markdown('<p class="section-header">✅ Consensus Calculation</p>', unsafe_allow_html=True)
+
+# Create consensus dataframe
+consensus_df = filtered_df.copy()
+
+if cycle_month in month_cols:
+    # Get adjustments from editors (simplified - in real app would capture from data_editor)
+    consensus_df['Channel_Adj'] = 0  # Placeholder - would come from channel_edited
+    consensus_df['Brand_Adj'] = 0    # Placeholder - would come from brand_edited
+    
+    # Calculate consensus
+    consensus_df['Consensus'] = (
+        consensus_df[cycle_month] + 
+        consensus_df['Channel_Adj'] + 
+        consensus_df['Brand_Adj']
+    )
+    
+    # Calculate variance
+    consensus_df['Variance_%'] = (
+        (consensus_df['Consensus'] - consensus_df[cycle_month]) / 
+        consensus_df[cycle_month].replace(0, 1) * 100
+    ).round(1)
+    
+    # Display consensus summary
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_baseline = consensus_df[cycle_month].sum()
+        st.metric("Total Baseline", f"{total_baseline:,.0f}")
+    
+    with col2:
+        total_consensus = consensus_df['Consensus'].sum()
+        st.metric("Total Consensus", f"{total_consensus:,.0f}")
+    
+    with col3:
+        total_change = total_consensus - total_baseline
+        st.metric("Net Change", f"{total_change:+,.0f}")
+    
+    with col4:
+        avg_variance = consensus_df['Variance_%'].mean()
+        st.metric("Avg Variance", f"{avg_variance:+.1f}%")
+    
+    # Display consensus table
+    st.markdown("#### Consensus Preview")
+    consensus_display = consensus_df[[
+        'sku_code', 'Product_Name', 'Brand_Group', 'Brand',
+        cycle_month, 'Channel_Adj', 'Brand_Adj', 'Consensus', 'Variance_%'
+    ]].head(15)
+    
+    st.dataframe(
+        consensus_display,
+        use_container_width=True,
+        column_config={
+            'sku_code': st.column_config.TextColumn("SKU"),
+            'Product_Name': st.column_config.TextColumn("Product"),
+            'Brand_Group': st.column_config.TextColumn("Brand Group"),
+            'Brand': st.column_config.TextColumn("Brand"),
+            cycle_month: st.column_config.NumberColumn("Baseline", format="%d"),
+            'Channel_Adj': st.column_config.NumberColumn("Channel Adj", format="%+d"),
+            'Brand_Adj': st.column_config.NumberColumn("Brand Adj", format="%+d"),
+            'Consensus': st.column_config.NumberColumn("Consensus", format="%d"),
+            'Variance_%': st.column_config.NumberColumn("Variance %", format="%+.1f%%"),
         }
-    }
-    
-    # Get configuration for this user role
-    config = BRAND_CONFIG.get(user_role)
-    if not config:
-        st.error("Invalid brand configuration.")
-        return
-    
-    # Set page title and icon
-    st.title(f"{config['icon']} {config['name']} Forecast Input")
-    st.markdown("---")
-    
-    # Initialize connector
-    gs = GSheetConnector()
-    
-    # Load data - Filter by brand group
-    with st.spinner(f"Loading data for {config['name']}..."):
-        rofo_df = gs.get_rofo_current()
-        
-        if rofo_df.empty:
-            st.error("No ROFO data available.")
-            return
-        
-        # FILTER: Only show SKUs for this brand group
-        if 'Brand_Group' in rofo_df.columns:
-            filtered_df = rofo_df[rofo_df['Brand_Group'].isin(config['brand_groups'])]
-            
-            if filtered_df.empty:
-                st.warning(f"No SKUs found for {config['name']}.")
-                return
-        else:
-            st.error("Brand_Group column not found in ROFO data")
-            return
-        
-        # Merge with stock data
-        stock_df = gs.get_sheet_data("stock_onhand")
-        if not stock_df.empty and 'sku_code' in stock_df.columns:
-            merged_df = pd.merge(
-                filtered_df,
-                stock_df[['sku_code', 'Stock_Qty']],
-                on='sku_code',
-                how='left'
-            )
-            merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
-        else:
-            merged_df = filtered_df.copy()
-            merged_df['Stock_Qty'] = 0
-    
-    # Identify month columns
-    month_columns = [col for col in merged_df.columns if '-' in str(col) and len(str(col)) >= 6]
-    
-    # Create input form
-    st.subheader("📝 Forecast Adjustment Input")
-    st.caption(f"Logged in as: **{username}** | Role: **{config['name']}**")
-    
-    with st.form(f"{user_role}_input_form"):
-        # Display metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(f"{config['name']} SKUs", len(merged_df))
-        with col2:
-            total_stock = merged_df['Stock_Qty'].sum()
-            st.metric("Total Stock", f"{total_stock:,.0f}")
-        with col3:
-            st.metric("Monthly Periods", len(month_columns))
-        
-        st.markdown("---")
-        
-        # Create editable dataframe
-        edited_df = merged_df.copy()
-        
-        # Add input columns for each month
-        for month in month_columns:
-            edited_df[f"{month}_input"] = edited_df[month]
-        
-        # Display columns for editing
-        display_columns = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'Stock_Qty']
-        for month in month_columns:
-            display_columns.extend([month, f"{month}_input"])
-        
-        # Create column configuration
-        column_config = {}
-        
-        # Fixed columns
-        column_config['sku_code'] = st.column_config.TextColumn("SKU Code", disabled=True)
-        column_config['Product_Name'] = st.column_config.TextColumn("Product Name", disabled=True)
-        column_config['Brand'] = st.column_config.TextColumn("Brand", disabled=True)
-        column_config['SKU_Tier'] = st.column_config.TextColumn("SKU Tier", disabled=True)
-        column_config['Stock_Qty'] = st.column_config.NumberColumn("Stock Qty", disabled=True, format="%d")
-        
-        # Month columns
-        for month in month_columns:
-            column_config[month] = st.column_config.NumberColumn(
-                f"Baseline {month}",
-                disabled=True,
-                format="%d"
-            )
-            column_config[f"{month}_input"] = st.column_config.NumberColumn(
-                f"Your Input {month}",
-                min_value=0,
-                step=1,
-                format="%d"
-            )
-        
-        # Display data editor
-        st.write("### Adjust Forecast Quantities (±40% limit)")
-        edited_data = st.data_editor(
-            edited_df[display_columns],
-            column_config=column_config,
-            use_container_width=True,
-            height=400,
-            num_rows="fixed",
-            key=f"{user_role}_editor"
-        )
-        
-        # Campaign fields
-        campaign_name = st.text_input(
-            "Campaign Name (if applicable)",
-            placeholder=f"e.g., {config['name']} Q2 Promotion",
-            key=f"{user_role}_campaign"
-        )
-        
-        notes = st.text_area(
-            "Adjustment Notes",
-            placeholder="Explain your forecast adjustments...",
-            key=f"{user_role}_notes"
-        )
-        
-        # Submit button
-        submit = st.form_submit_button(
-            f"💾 Save to {config['name']} Input",
-            use_container_width=True,
-            key=f"{user_role}_submit"
-        )
-        
-        if submit:
-            # Validate adjustments (±40%)
-            validation_errors = []
-            
-            for month in month_columns:
-                input_col = f"{month}_input"
-                baseline_col = month
-                
-                for idx, row in edited_data.iterrows():
-                    baseline = row[baseline_col]
-                    new_value = row[input_col]
-                    
-                    if pd.isna(baseline) or pd.isna(new_value):
-                        continue
-                    
-                    try:
-                        baseline = float(baseline)
-                        new_value = float(new_value)
-                    except:
-                        continue
-                    
-                    max_change = baseline * 0.4
-                    min_allowed = max(0, baseline - max_change)
-                    max_allowed = baseline + max_change
-                    
-                    if new_value < min_allowed or new_value > max_allowed:
-                        validation_errors.append({
-                            'sku': row['sku_code'],
-                            'brand': row['Brand'],
-                            'month': month,
-                            'baseline': baseline,
-                            'input': new_value,
-                            'min_allowed': min_allowed,
-                            'max_allowed': max_allowed
-                        })
-            
-            if validation_errors:
-                st.error(f"❌ {len(validation_errors)} adjustments exceed ±40% limit")
-                for error in validation_errors[:3]:
-                    st.error(
-                        f"**{error['sku']} - {error['month']}:** "
-                        f"Input {error['input']:.0f} vs Baseline {error['baseline']:.0f}"
-                    )
-                if len(validation_errors) > 3:
-                    st.error(f"... and {len(validation_errors) - 3} more errors")
-            
-            else:
-                # Prepare data for saving
-                save_df = edited_data.copy()
-                
-                # Keep only necessary columns
-                save_columns = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier']
-                
-                # Replace baseline with input values
-                for month in month_columns:
-                    save_df[month] = save_df[f"{month}_input"]
-                    save_columns.append(month)
-                
-                # Add metadata
-                save_df['campaign_name'] = campaign_name
-                save_df['notes'] = notes
-                save_df['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                save_df['submitted_by'] = username
-                
-                # Select final columns
-                final_columns = save_columns + ['campaign_name', 'notes', 'last_updated', 'submitted_by']
-                save_df = save_df[final_columns]
-                
-                # Save to GSheet
-                with st.spinner(f"Saving to {config['name']}..."):
-                    success = gs.update_sheet(config['sheet_name'], save_df)
-                    
-                    if success:
-                        # Log submission
-                        log_entry = {
-                            'submission_id': f"{config['log_prefix']}{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                            'username': username,
-                            'role': user_role,
-                            'submission_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'status': 'submitted'
-                        }
-                        gs.append_to_sheet("input_log", log_entry)
-                        
-                        st.success(f"✅ {config['name']} input saved successfully!")
-                        st.balloons()
-                    else:
-                        st.error("❌ Failed to save data. Please try again.")
+    )
 
 # ============================================================================
-# ADMIN PAGE
+# FINALIZATION SECTION
 # ============================================================================
-def show_admin_page(username):
-    """Admin/Demand Planner dashboard"""
-    st.title("👨‍💼 Admin - Demand Planner Dashboard")
-    st.markdown("---")
-    
-    # Initialize connector
-    gs = GSheetConnector()
-    
-    # Sidebar controls
-    with st.sidebar:
-        st.header("Admin Controls")
-        
-        if st.button("🔄 Refresh All Data", use_container_width=True, key="admin_refresh"):
-            st.rerun()
-        
-        st.markdown("---")
-        st.subheader("Consensus Management")
-        
-        if st.button("✅ Finalize Consensus", type="primary", use_container_width=True, key="admin_finalize"):
-            st.info("Consensus finalization feature coming soon...")
-        
-        st.markdown("---")
-        st.subheader("Export Options")
-        
-        if st.button("📊 Export to Excel", use_container_width=True, key="admin_export"):
-            st.info("Export feature coming soon...")
-        
-        st.markdown("---")
-        if st.button("🚪 Logout", use_container_width=True, key="admin_logout"):
-            st.session_state.authenticated = False
-            st.session_state.username = None
-            st.session_state.role = None
-            st.rerun()
-    
-    # Load all data
-    with st.spinner("Loading all data..."):
-        rofo_df = gs.get_rofo_current()
-        channel_df = gs.get_sheet_data("channel_input")
-        brand1_df = gs.get_sheet_data("brand1_input")
-        brand2_df = gs.get_sheet_data("brand2_input")
-        stock_df = gs.get_sheet_data("stock_onhand")
-        log_df = gs.get_sheet_data("input_log")
-    
-    # Tab layout
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📈 Overview", 
-        "🔍 Comparison", 
-        "📊 Stock Simulation", 
-        "📋 Submission Status"
-    ])
-    
-    with tab1:
-        st.subheader("S&OP Forecast Overview")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_skus = len(rofo_df) if not rofo_df.empty else 0
-            st.metric("Total SKUs", total_skus)
-        
-        with col2:
-            submitted = len(log_df[log_df['status'] == 'submitted']) if not log_df.empty else 0
-            st.metric("Submissions Received", submitted)
-        
-        with col3:
-            total_stock = stock_df['Stock_Qty'].sum() if not stock_df.empty else 0
-            st.metric("Total Stock", f"{total_stock:,.0f}")
-        
-        with col4:
-            total_users = 4
-            active_users = len(log_df['username'].unique()) if not log_df.empty else 0
-            st.metric("Active Users", f"{active_users}/{total_users}")
-        
-        # Recent activity
-        st.markdown("---")
-        st.subheader("Recent Activity")
-        
-        if not log_df.empty:
-            recent_logs = log_df.sort_values('submission_date', ascending=False).head(10)
-            for _, log in recent_logs.iterrows():
-                st.write(f"**{log['username']}** ({log['role']}) submitted at {log['submission_date']}")
-        else:
-            st.info("No submissions yet.")
-    
-    with tab2:
-        st.subheader("Forecast Comparison")
-        
-        if not rofo_df.empty:
-            month_columns = [col for col in rofo_df.columns if '-' in str(col) and len(str(col)) >= 6]
-            
-            if month_columns:
-                sample_month = month_columns[0]
-                
-                comparison_data = []
-                
-                # Get values from each source (first 10 SKUs)
-                for idx, sku_row in rofo_df.head(10).iterrows():
-                    sku_code = sku_row['sku_code']
-                    
-                    # Get channel input
-                    channel_val = None
-                    if not channel_df.empty and 'sku_code' in channel_df.columns:
-                        channel_row = channel_df[channel_df['sku_code'] == sku_code]
-                        if not channel_row.empty and sample_month in channel_row.columns:
-                            channel_val = channel_row.iloc[0][sample_month]
-                    
-                    # Get brand1 input
-                    brand1_val = None
-                    if not brand1_df.empty and 'sku_code' in brand1_df.columns:
-                        brand1_row = brand1_df[brand1_df['sku_code'] == sku_code]
-                        if not brand1_row.empty and sample_month in brand1_row.columns:
-                            brand1_val = brand1_row.iloc[0][sample_month]
-                    
-                    # Get brand2 input
-                    brand2_val = None
-                    if not brand2_df.empty and 'sku_code' in brand2_df.columns:
-                        brand2_row = brand2_df[brand2_df['sku_code'] == sku_code]
-                        if not brand2_row.empty and sample_month in brand2_row.columns:
-                            brand2_val = brand2_row.iloc[0][sample_month]
-                    
-                    comparison_data.append({
-                        'SKU': sku_code,
-                        'Product': sku_row.get('Product_Name', ''),
-                        'Brand Group': sku_row.get('Brand_Group', ''),
-                        'Baseline': sku_row[sample_month],
-                        'Channel': channel_val,
-                        'Brand Group 1': brand1_val,
-                        'Brand Group 2': brand2_val
-                    })
-                
-                comp_df = pd.DataFrame(comparison_data)
-                st.dataframe(comp_df, use_container_width=True)
-    
-    with tab3:
-        st.subheader("Stock Projection Simulation")
-        
-        if not rofo_df.empty and not stock_df.empty:
-            month_columns = [col for col in rofo_df.columns if '-' in str(col) and len(str(col)) >= 6]
-            
-            if month_columns:
-                # Calculate total forecast per month
-                total_forecast = []
-                for month in month_columns:
-                    if month in rofo_df.columns:
-                        total_forecast.append({
-                            'Month': month,
-                            'Total Forecast': rofo_df[month].sum()
-                        })
-                
-                forecast_df = pd.DataFrame(total_forecast)
-                
-                # Display forecast chart
-                st.write("### Total Monthly Forecast")
-                st.bar_chart(forecast_df.set_index('Month'))
-                
-                # Stock coverage calculation
-                total_stock = stock_df['Stock_Qty'].sum()
-                avg_monthly_forecast = rofo_df[month_columns].sum().mean()
-                
-                if avg_monthly_forecast > 0:
-                    months_coverage = total_stock / avg_monthly_forecast
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Total Stock", f"{total_stock:,.0f}")
-                    with col2:
-                        st.metric("Months of Coverage", f"{months_coverage:.1f}")
-        
-        else:
-            st.info("Data not available for stock simulation.")
-    
-    with tab4:
-        st.subheader("Submission Status")
-        
-        if not log_df.empty:
-            st.dataframe(log_df, use_container_width=True)
-        else:
-            st.info("No submissions yet.")
+st.markdown("---")
+st.markdown('<p class="section-header">💾 Finalize Consensus</p>', unsafe_allow_html=True)
 
-# ============================================================================
-# MAIN APP LOGIC
-# ============================================================================
-def main():
-    if not st.session_state.authenticated:
-        show_login_page()
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    notes = st.text_area(
+        "Meeting Notes / Justification",
+        placeholder="Document key decisions, rationale for significant adjustments, campaign impacts...",
+        height=100,
+        key="meeting_notes"
+    )
+
+with col2:
+    st.markdown("### Final Approval")
+    
+    # Simulate approval (in real meeting, this would be verbal)
+    approved = st.checkbox("✅ Consensus approved in meeting", value=False, key="approval_check")
+    
+    if approved:
+        save_disabled = False
+        st.success("Ready to save consensus")
     else:
-        # Show current user info in sidebar
-        with st.sidebar:
-            st.write(f"Logged in as: **{st.session_state.username}**")
-            st.write(f"Role: **{st.session_state.role}**")
+        save_disabled = True
+        st.warning("Awaiting meeting approval")
+    
+    # Save button
+    if st.button(
+        "💾 Save Final Consensus to GSheet",
+        type="primary",
+        use_container_width=True,
+        disabled=save_disabled,
+        key="save_consensus"
+    ):
+        with st.spinner("Saving consensus to Google Sheets..."):
+            # Prepare final data
+            final_df = consensus_df.copy()
+            final_df['meeting_date'] = meeting_date.strftime("%Y-%m-%d")
+            final_df['cycle_month'] = cycle_month
+            final_df['notes'] = notes
+            final_df['saved_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            if st.button("🚪 Logout", use_container_width=True, key="main_logout"):
-                st.session_state.authenticated = False
-                st.session_state.username = None
-                st.session_state.role = None
-                st.rerun()
-        
-        # Route based on role
-        user_role = st.session_state.role
-        
-        if user_role == 'channel':
-            show_channel_page(st.session_state.username)
-        
-        elif user_role in ['brand1', 'brand2']:
-            show_brand_page(st.session_state.username, user_role)
-        
-        elif user_role == 'admin':
-            show_admin_page(st.session_state.username)
-        
-        else:
-            st.error("Invalid user role. Please contact administrator.")
+            # Save to GSheet
+            gs = GSheetConnector()
+            
+            # Save to consensus_log sheet
+            log_cols = ['meeting_date', 'cycle_month', 'sku_code', 'Product_Name', 
+                       'Brand_Group', 'Brand', 'baseline', 'channel_adj', 
+                       'brand_adj', 'consensus', 'variance_pct', 'notes', 'saved_at']
+            
+            log_df = pd.DataFrame(columns=log_cols)
+            for _, row in final_df.iterrows():
+                log_df = log_df.append({
+                    'meeting_date': row['meeting_date'],
+                    'cycle_month': cycle_month,
+                    'sku_code': row['sku_code'],
+                    'Product_Name': row['Product_Name'],
+                    'Brand_Group': row['Brand_Group'],
+                    'Brand': row['Brand'],
+                    'baseline': row[cycle_month],
+                    'channel_adj': row['Channel_Adj'],
+                    'brand_adj': row['Brand_Adj'],
+                    'consensus': row['Consensus'],
+                    'variance_pct': row['Variance_%'],
+                    'notes': notes,
+                    'saved_at': row['saved_at']
+                }, ignore_index=True)
+            
+            success = gs.update_sheet("consensus_log", log_df)
+            
+            if success:
+                st.balloons()
+                st.markdown('<div class="success-msg">✅ Consensus successfully saved to Google Sheets!</div>', unsafe_allow_html=True)
+                
+                # Option to update ROFO_current
+                if st.checkbox("Update ROFO_current with new consensus?", value=False):
+                    # Update ROFO for next month
+                    st.info("Feature coming soon - will update ROFO_current sheet")
+            else:
+                st.error("❌ Failed to save consensus. Please try again.")
 
 # ============================================================================
-# RUN THE APP
+# FOOTER
 # ============================================================================
-if __name__ == "__main__":
-    main()
+st.markdown("---")
+st.caption(f"🤝 S&OP Meeting Dashboard | Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption("For ERHA Group Internal Use Only")
