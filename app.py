@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import gspread
-import plotly.graph_objects as go
 from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
@@ -10,60 +10,48 @@ from datetime import datetime
 # PAGE CONFIGURATION
 # ============================================================================
 st.set_page_config(
-    page_title="S&OP Consensus Meeting Dashboard",
-    page_icon="🤝",
+    page_title="S&OP 3-Month Consensus Dashboard",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for professional look
+# Custom CSS
 st.markdown("""
 <style>
-    .main-title {
-        font-size: 2.8rem;
+    .main-header {
+        font-size: 2.5rem;
         color: #1E3A8A;
         text-align: center;
         margin-bottom: 0.5rem;
         font-weight: 700;
     }
-    .sub-title {
+    .sub-header {
         font-size: 1.2rem;
         color: #4B5563;
         text-align: center;
         margin-bottom: 2rem;
     }
-    .section-header {
-        font-size: 1.5rem;
-        color: #1E3A8A;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #E5E7EB;
-    }
-    .metric-card {
-        background-color: #F9FAFB;
+    .highlight-box {
+        background-color: #F0F9FF;
         padding: 1rem;
         border-radius: 0.5rem;
-        border: 1px solid #E5E7EB;
+        border: 2px solid #0EA5E9;
+        margin-bottom: 1rem;
     }
-    .dataframe {
+    .data-table {
         font-size: 0.85rem;
     }
-    .stButton>button {
+    .positive {
+        color: #10B981;
         font-weight: 600;
     }
-    .success-msg {
-        padding: 1rem;
-        background-color: #D1FAE5;
-        border: 1px solid #10B981;
-        border-radius: 0.5rem;
-        color: #065F46;
+    .negative {
+        color: #EF4444;
+        font-weight: 600;
     }
-    .warning-msg {
-        padding: 1rem;
-        background-color: #FEF3C7;
-        border: 1px solid #F59E0B;
-        border-radius: 0.5rem;
-        color: #92400E;
+    .neutral {
+        color: #6B7280;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -71,25 +59,40 @@ st.markdown("""
 # ============================================================================
 # HEADER
 # ============================================================================
-st.markdown('<p class="main-title">🤝 S&OP Consensus Meeting Dashboard</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">Real-time Forecast Collaboration | ERHA Group</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-header">📈 S&OP 3-Month Consensus Dashboard</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-header">Last 3M Sales vs ROFO Feb-Apr 2026 | Real-time Adjustment</p>', unsafe_allow_html=True)
 
 # Meeting info
-col1, col2, col3 = st.columns(3)
-with col1:
-    meeting_date = st.date_input("Meeting Date", value=datetime.now().date(), key="meeting_date")
-with col2:
-    cycle_month = st.selectbox("Forecast Cycle", 
-                              ["Feb-26", "Mar-26", "Apr-26", "May-26", "Jun-26", 
-                               "Jul-26", "Aug-26", "Sep-26", "Oct-26", "Nov-26", 
-                               "Dec-26", "Jan-27"], key="cycle_month")
-with col3:
-    st.metric("Meeting Type", "W4 S&OP", "Consensus Review")
+with st.container():
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        meeting_date = st.date_input("Meeting Date", value=datetime.now().date(), key="meeting_date")
+    with col2:
+        st.metric("Cycle", "Q1 2026", "Feb-Apr Forecast")
+    with col3:
+        baseline_period = st.selectbox(
+            "Baseline Period",
+            ["Oct-Dec 2025", "Nov 2025-Jan 2026", "Dec 2025-Feb 2026"],
+            key="baseline_period"
+        )
+    with col4:
+        st.metric("SKUs", "Loading...", "0")
 
 st.markdown("---")
 
+# Highlight info box
+st.markdown("""
+<div class="highlight-box">
+    <strong>📊 Workflow:</strong> 
+    1. Baseline = Average of Last 3 Month Actual Sales<br>
+    2. Adjust Current ROFO (Feb-Apr 2026) based on Channel & Brand input<br>
+    3. Calculate % growth vs Baseline<br>
+    4. Finalize consensus for next 3 months
+</div>
+""", unsafe_allow_html=True)
+
 # ============================================================================
-# GSHEET CONNECTOR (SAME AS BEFORE)
+# GSHEET CONNECTOR
 # ============================================================================
 class GSheetConnector:
     def __init__(self):
@@ -97,527 +100,465 @@ class GSheetConnector:
             self.sheet_id = st.secrets["gsheets"]["sheet_id"]
             self.service_account_info = json.loads(st.secrets["gsheets"]["service_account_info"])
         except:
-            st.error("⚠️ GSheet credentials not found. Please check Streamlit secrets.")
+            st.error("GSheet credentials not found.")
             raise
-        
         self.client = None
         self.connect()
     
     def connect(self):
-        """Connect to Google Sheets API"""
         try:
             scope = ['https://www.googleapis.com/auth/spreadsheets']
-            creds = Credentials.from_service_account_info(
-                self.service_account_info, scopes=scope)
+            creds = Credentials.from_service_account_info(self.service_account_info, scopes=scope)
             self.client = gspread.authorize(creds)
             self.sheet = self.client.open_by_key(self.sheet_id)
         except Exception as e:
-            st.error(f"❌ Failed to connect to Google Sheets: {str(e)}")
+            st.error(f"Connection error: {str(e)}")
             raise
     
     def get_sheet_data(self, sheet_name):
-        """Read sheet as DataFrame"""
         try:
             worksheet = self.sheet.worksheet(sheet_name)
             data = worksheet.get_all_records()
             return pd.DataFrame(data)
-        except Exception as e:
-            st.warning(f"Sheet '{sheet_name}' not found or empty: {str(e)}")
+        except:
             return pd.DataFrame()
-    
-    def update_sheet(self, sheet_name, df):
-        """Update sheet with DataFrame"""
-        try:
-            worksheet = self.sheet.worksheet(sheet_name)
-            worksheet.clear()
-            
-            # Convert DataFrame to list of lists
-            data = [df.columns.values.tolist()] + df.values.tolist()
-            worksheet.update(data, value_input_option='USER_ENTERED')
-            return True
-        except Exception as e:
-            st.error(f"❌ Error updating sheet {sheet_name}: {str(e)}")
-            return False
 
 # ============================================================================
-# DATA LOADING
+# DATA PROCESSING FUNCTIONS
 # ============================================================================
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_all_data():
-    """Load all required data from GSheet"""
+@st.cache_data
+def load_and_process_data():
+    """Load and process data for 3-month comparison"""
     gs = GSheetConnector()
     
-    with st.spinner("📥 Loading data from Google Sheets..."):
-        data = {}
-        
-        # Load ROFO current (baseline)
-        rofo_df = gs.get_sheet_data("rofo_current")
-        if not rofo_df.empty:
-            # Identify month columns
-            month_cols = [col for col in rofo_df.columns if '-' in str(col) and len(str(col)) >= 6]
-            keep_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'] + month_cols
-            keep_cols = [col for col in keep_cols if col in rofo_df.columns]
-            data['rofo'] = rofo_df[keep_cols]
-        else:
-            data['rofo'] = pd.DataFrame()
-        
-        # Load stock data
-        stock_df = gs.get_sheet_data("stock_onhand")
-        data['stock'] = stock_df if not stock_df.empty else pd.DataFrame()
-        
-        # Load historical sales (optional)
-        sales_df = gs.get_sheet_data("sales_history")
-        data['sales'] = sales_df if not sales_df.empty else pd.DataFrame()
-        
-        # Load previous inputs (if any)
-        data['channel_input'] = gs.get_sheet_data("channel_input")
-        data['brand1_input'] = gs.get_sheet_data("brand1_input")
-        data['brand2_input'] = gs.get_sheet_data("brand2_input")
-        
-        return data
+    # 1. Load historical sales
+    sales_df = gs.get_sheet_data("sales_history")
+    if sales_df.empty:
+        st.error("No sales history data found")
+        return None
+    
+    # 2. Load current ROFO
+    rofo_df = gs.get_sheet_data("rofo_current")
+    if rofo_df.empty:
+        st.error("No ROFO data found")
+        return None
+    
+    # 3. Load stock data
+    stock_df = gs.get_sheet_data("stock_onhand")
+    
+    # ============================================
+    # PROCESS SALES DATA - Calculate last 3 month average
+    # ============================================
+    
+    # Identify sales month columns (assuming format like "Oct-24", "Nov-24")
+    sales_month_cols = [col for col in sales_df.columns if '-' in str(col)]
+    
+    # Get last 3 months based on baseline_period selection
+    # For now, hardcode last 3 months from available data
+    if len(sales_month_cols) >= 3:
+        last_3_months = sales_month_cols[-3:]  # Last 3 columns
+    else:
+        last_3_months = sales_month_cols  # Use whatever is available
+    
+    # Calculate baseline (average of last 3 months)
+    sales_df['Baseline_3M_Avg'] = sales_df[last_3_months].mean(axis=1)
+    
+    # Keep only essential columns from sales
+    sales_essential = sales_df[['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'Baseline_3M_Avg']]
+    
+    # ============================================
+    # PROCESS ROFO DATA - Focus on Feb-Apr 2026
+    # ============================================
+    
+    # Identify ROFO month columns
+    rofo_month_cols = [col for col in rofo_df.columns if '-' in str(col)]
+    
+    # Filter for Feb, Mar, Apr 2026
+    target_months = ['Feb-26', 'Mar-26', 'Apr-26']
+    available_months = [m for m in target_months if m in rofo_month_cols]
+    
+    # Keep essential columns from ROFO
+    rofo_essential_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'] + available_months
+    rofo_essential_cols = [col for col in rofo_essential_cols if col in rofo_df.columns]
+    rofo_essential = rofo_df[rofo_essential_cols]
+    
+    # ============================================
+    # MERGE DATA
+    # ============================================
+    
+    # Merge sales baseline with ROFO data
+    merged_df = pd.merge(
+        sales_essential,
+        rofo_essential,
+        on=['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'],
+        how='inner',
+        suffixes=('', '_rofo')
+    )
+    
+    # Merge with stock data if available
+    if not stock_df.empty and 'sku_code' in stock_df.columns:
+        merged_df = pd.merge(
+            merged_df,
+            stock_df[['sku_code', 'Stock_Qty']],
+            on='sku_code',
+            how='left'
+        )
+        merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
+    
+    return {
+        'data': merged_df,
+        'available_months': available_months,
+        'last_3_months': last_3_months,
+        'stock': stock_df
+    }
 
-# Load data
-data = load_all_data()
-rofo_df = data['rofo']
-stock_df = data['stock']
-
-if rofo_df.empty:
-    st.error("❌ No ROFO data found. Please check your GSheet.")
+# ============================================================================
+# MAIN DATA LOADING
+# ============================================================================
+with st.spinner("Loading and processing data..."):
+    processed_data = load_and_process_data()
+    
+if not processed_data:
     st.stop()
 
+df = processed_data['data']
+available_months = processed_data['available_months']
+last_3_months = processed_data['last_3_months']
+stock_df = processed_data['stock']
+
+st.success(f"✅ Loaded {len(df)} SKUs | Baseline: {', '.join(last_3_months)} | ROFO Months: {', '.join(available_months)}")
+
 # ============================================================================
-# SIDEBAR - CONTROLS & METRICS
+# SIDEBAR - FILTERS & CONTROLS
 # ============================================================================
 with st.sidebar:
-    st.header("🛠️ Meeting Controls")
+    st.header("🔍 Filters & Controls")
     
     # Refresh button
-    if st.button("🔄 Refresh Data", use_container_width=True, key="refresh_btn"):
+    if st.button("🔄 Refresh Data", use_container_width=True, key="refresh_all"):
         st.cache_data.clear()
         st.rerun()
     
     st.markdown("---")
     
-    # Filters
-    st.header("🔍 Filters")
+    # Brand Group Filter
+    brand_groups = ["ALL"] + sorted(df['Brand_Group'].dropna().unique().tolist())
+    selected_brand = st.selectbox("Brand Group", brand_groups, key="filter_brand")
     
-    brand_groups = ["ALL"] + sorted(rofo_df['Brand_Group'].dropna().unique().tolist())
-    selected_brand_group = st.selectbox("Brand Group", brand_groups, key="brand_filter")
+    # SKU Tier Filter
+    sku_tiers = ["ALL"] + sorted(df['SKU_Tier'].dropna().unique().tolist())
+    selected_tier = st.selectbox("SKU Tier", sku_tiers, key="filter_tier")
     
-    sku_tiers = ["ALL"] + sorted(rofo_df['SKU_Tier'].dropna().unique().tolist())
-    selected_tier = st.selectbox("SKU Tier", sku_tiers, key="tier_filter")
+    # Brand Filter
+    brands = ["ALL"] + sorted(df['Brand'].dropna().unique().tolist())
+    selected_brand_name = st.selectbox("Brand", brands, key="filter_brand_name")
     
     # Apply filters
-    filtered_df = rofo_df.copy()
-    if selected_brand_group != "ALL":
-        filtered_df = filtered_df[filtered_df['Brand_Group'] == selected_brand_group]
+    filtered_df = df.copy()
+    if selected_brand != "ALL":
+        filtered_df = filtered_df[filtered_df['Brand_Group'] == selected_brand]
     if selected_tier != "ALL":
         filtered_df = filtered_df[filtered_df['SKU_Tier'] == selected_tier]
+    if selected_brand_name != "ALL":
+        filtered_df = filtered_df[filtered_df['Brand'] == selected_brand_name]
     
     st.markdown("---")
     
-    # Meeting Metrics
-    st.header("📊 Meeting Metrics")
+    # Summary Metrics
+    st.header("📊 Summary")
     
     total_skus = len(filtered_df)
-    total_stock = stock_df['Stock_Qty'].sum() if not stock_df.empty else 0
+    total_baseline = filtered_df['Baseline_3M_Avg'].sum()
+    total_stock = filtered_df['Stock_Qty'].sum() if 'Stock_Qty' in filtered_df.columns else 0
     
-    st.metric("SKUs in View", total_skus)
-    st.metric("Total Stock", f"{total_stock:,.0f}")
+    st.metric("SKUs in View", f"{total_skus:,}")
+    st.metric("Avg Baseline/3M", f"{total_baseline/total_skus:,.0f}" if total_skus > 0 else "0")
+    st.metric("Total Stock", f"{total_stock:,}")
     
-    # Calculate average baseline for selected month
-    month_cols = [col for col in filtered_df.columns if '-' in str(col) and len(str(col)) >= 6]
-    if month_cols and cycle_month in month_cols:
-        avg_forecast = filtered_df[cycle_month].mean()
-        st.metric(f"Avg {cycle_month}", f"{avg_forecast:,.0f}")
+    # Calculate average ROFO growth
+    if available_months:
+        for month in available_months[:1]:  # Show first month only
+            if month in filtered_df.columns:
+                avg_rofo = filtered_df[month].mean()
+                avg_baseline = filtered_df['Baseline_3M_Avg'].mean()
+                if avg_baseline > 0:
+                    growth_pct = ((avg_rofo - avg_baseline) / avg_baseline * 100)
+                    st.metric(f"Avg {month} vs Baseline", f"{growth_pct:+.1f}%")
 
 # ============================================================================
-# MAIN DASHBOARD - 3 COLUMN VIEW
+# MAIN DASHBOARD - 3 MONTH COMPARISON TABLE
 # ============================================================================
-st.markdown('<p class="section-header">📈 Real-time Forecast Adjustment</p>', unsafe_allow_html=True)
+st.header("📋 3-Month Forecast Adjustment Table")
 
-# Create 3-column layout
-col1, col2, col3 = st.columns([1, 1, 1], gap="large")
+# Calculate percentage columns for display
+display_df = filtered_df.copy()
 
-# Identify month columns
-month_cols = [col for col in filtered_df.columns if '-' in str(col) and len(str(col)) >= 6]
-if not month_cols:
-    st.error("No month columns found in ROFO data.")
-    st.stop()
+# Add % columns for ROFO vs Baseline
+for month in available_months:
+    if month in display_df.columns:
+        pct_col = f"{month}_vs_Baseline_%"
+        display_df[pct_col] = (
+            (display_df[month] - display_df['Baseline_3M_Avg']) / 
+            display_df['Baseline_3M_Avg'].replace(0, 1) * 100
+        ).round(1)
+        
+        # Add consensus columns (initially same as ROFO)
+        cons_col = f"Consensus_{month}"
+        display_df[cons_col] = display_df[month]
+        
+        # Add consensus % columns
+        cons_pct_col = f"Consensus_{month}_vs_Baseline_%"
+        display_df[cons_pct_col] = display_df[pct_col]
 
-# ============================================================================
-# COLUMN 1: BASELINE ROFO (READ-ONLY)
-# ============================================================================
-with col1:
-    st.markdown("### 📊 Baseline ROFO")
-    st.caption("Current forecast - Read only")
-    
-    # Display baseline metrics
-    baseline_metrics = st.container()
-    with baseline_metrics:
-        m1, m2 = st.columns(2)
-        with m1:
-            if cycle_month in month_cols:
-                total_baseline = filtered_df[cycle_month].sum()
-                st.metric("Total", f"{total_baseline:,.0f}")
-        with m2:
-            if cycle_month in month_cols:
-                avg_baseline = filtered_df[cycle_month].mean()
-                st.metric("Average", f"{avg_baseline:,.0f}")
-    
-    # Display baseline data
-    display_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
-    if cycle_month in filtered_df.columns:
-        display_cols.append(cycle_month)
-    
-    baseline_display = filtered_df[display_cols].copy()
-    
-    # Add stock data if available
-    if not stock_df.empty and 'sku_code' in stock_df.columns:
-        baseline_display = pd.merge(
-            baseline_display,
-            stock_df[['sku_code', 'Stock_Qty']],
-            on='sku_code',
-            how='left'
+# Create editable dataframe
+editable_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier']
+
+if 'Stock_Qty' in display_df.columns:
+    editable_cols.append('Stock_Qty')
+
+editable_cols.append('Baseline_3M_Avg')
+
+# Add ROFO months and their % columns
+for month in available_months:
+    if month in display_df.columns:
+        editable_cols.extend([month, f"{month}_vs_Baseline_%"])
+
+# Add Consensus columns (editable)
+for month in available_months:
+    cons_col = f"Consensus_{month}"
+    cons_pct_col = f"Consensus_{month}_vs_Baseline_%"
+    editable_cols.extend([cons_col, cons_pct_col])
+
+# Prepare dataframe for editing
+editor_df = display_df[editable_cols].copy()
+
+# Define column configuration
+column_config = {}
+
+# Fixed columns
+column_config['sku_code'] = st.column_config.TextColumn("SKU", width="small", disabled=True)
+column_config['Product_Name'] = st.column_config.TextColumn("Product", width="medium", disabled=True)
+column_config['Brand_Group'] = st.column_config.TextColumn("Brand Group", width="small", disabled=True)
+column_config['Brand'] = st.column_config.TextColumn("Brand", width="small", disabled=True)
+column_config['SKU_Tier'] = st.column_config.TextColumn("Tier", width="small", disabled=True)
+
+if 'Stock_Qty' in editor_df.columns:
+    column_config['Stock_Qty'] = st.column_config.NumberColumn("Stock", format="%d", width="small", disabled=True)
+
+column_config['Baseline_3M_Avg'] = st.column_config.NumberColumn(
+    "Baseline (Avg 3M)", 
+    format="%.0f", 
+    width="small", 
+    disabled=True,
+    help="Average of last 3 month actual sales"
+)
+
+# ROFO columns (read-only)
+for month in available_months:
+    if month in editor_df.columns:
+        column_config[month] = st.column_config.NumberColumn(
+            f"ROFO {month}", 
+            format="%d", 
+            width="small", 
+            disabled=True,
+            help="Current ROFO forecast"
         )
-        baseline_display['Stock_Qty'] = baseline_display['Stock_Qty'].fillna(0)
-        display_cols.append('Stock_Qty')
+        
+        pct_col = f"{month}_vs_Baseline_%"
+        column_config[pct_col] = st.column_config.NumberColumn(
+            f"% vs Baseline", 
+            format="%+.1f%%", 
+            width="small", 
+            disabled=True
+        )
+
+# Consensus columns (EDITABLE)
+for month in available_months:
+    cons_col = f"Consensus_{month}"
+    column_config[cons_col] = st.column_config.NumberColumn(
+        f"Consensus {month}",
+        min_value=0,
+        step=1,
+        format="%d",
+        width="small",
+        help="Final consensus quantity after discussion"
+    )
     
-    st.dataframe(
-        baseline_display,
-        use_container_width=True,
-        height=400,
-        column_config={
-            'sku_code': st.column_config.TextColumn("SKU", width="small"),
-            'Product_Name': st.column_config.TextColumn("Product", width="medium"),
-            'Brand': st.column_config.TextColumn("Brand", width="small"),
-            'SKU_Tier': st.column_config.TextColumn("Tier", width="small"),
-            cycle_month: st.column_config.NumberColumn(
-                "Baseline",
-                format="%d",
-                width="small"
-            ),
-            'Stock_Qty': st.column_config.NumberColumn(
-                "Stock",
-                format="%d",
-                width="small"
-            ) if 'Stock_Qty' in baseline_display.columns else None
-        }
+    cons_pct_col = f"Consensus_{month}_vs_Baseline_%"
+    column_config[cons_pct_col] = st.column_config.NumberColumn(
+        f"Consensus %",
+        format="%+.1f%%",
+        width="small",
+        disabled=True
     )
 
-# ============================================================================
-# COLUMN 2: CHANNEL ADJUSTMENTS (EDITABLE)
-# ============================================================================
-with col2:
-    st.markdown("### 🛒 Channel Input")
-    st.caption("Sales team adjustments (±40% limit)")
-    
-    # Create editable dataframe for Channel
-    channel_df = filtered_df.copy()
-    
-    # Initialize adjustment columns if they don't exist
-    for month in month_cols:
-        adj_col = f"{month}_channel_adj"
-        if adj_col not in channel_df.columns:
-            channel_df[adj_col] = 0  # Default no adjustment
-        pct_col = f"{month}_channel_pct"
-        if pct_col not in channel_df.columns:
-            channel_df[pct_col] = 0.0
-    
-    # Display editable grid for selected month
-    if cycle_month in month_cols:
-        # Calculate suggested adjustment (placeholder - can be based on history)
-        channel_df[f"{cycle_month}_suggested"] = channel_df[cycle_month] * 0.1  # 10% increase as example
-        
-        # Create display dataframe
-        channel_display = channel_df[[
-            'sku_code', 'Product_Name', 'Brand', 
-            cycle_month, f"{cycle_month}_channel_adj", f"{cycle_month}_suggested"
-        ]].copy()
-        
-        # Rename columns for display
-        channel_display.columns = ['SKU', 'Product', 'Brand', 'Baseline', 'Your Adjustment', 'Suggested']
-        
-        # Editable configuration
-        column_config = {
-            'SKU': st.column_config.TextColumn("SKU", disabled=True),
-            'Product': st.column_config.TextColumn("Product", disabled=True),
-            'Brand': st.column_config.TextColumn("Brand", disabled=True),
-            'Baseline': st.column_config.NumberColumn("Baseline", disabled=True, format="%d"),
-            'Your Adjustment': st.column_config.NumberColumn(
-                "Adjustment",
-                min_value=-1000000,
-                max_value=1000000,
-                step=1,
-                format="%d"
-            ),
-            'Suggested': st.column_config.NumberColumn("Suggested", disabled=True, format="%d")
-        }
-        
-        # Display editable dataframe
-        channel_edited = st.data_editor(
-            channel_display.head(20),  # Show first 20 for performance
-            column_config=column_config,
-            use_container_width=True,
-            height=400,
-            key="channel_editor"
-        )
-        
-        # Adjustment summary
-        if not channel_edited.empty:
-            total_adjustment = channel_edited['Your Adjustment'].sum()
-            avg_adjustment = channel_edited['Your Adjustment'].mean()
-            
-            m1, m2 = st.columns(2)
-            with m1:
-                st.metric("Total Adj", f"{total_adjustment:+,.0f}")
-            with m2:
-                st.metric("Avg Adj", f"{avg_adjustment:+,.0f}")
+# Display the editable table
+st.caption(f"Showing {len(editor_df)} SKUs. Green/red percentages show growth/decline vs 3-month baseline.")
+edited_df = st.data_editor(
+    editor_df.head(50),  # Limit to 50 rows for performance
+    column_config=column_config,
+    use_container_width=True,
+    height=500,
+    key="consensus_editor"
+)
 
 # ============================================================================
-# COLUMN 3: BRAND ADJUSTMENTS (EDITABLE)
-# ============================================================================
-with col3:
-    st.markdown("### 🏷️ Brand Input")
-    st.caption("Marketing team adjustments (±40% limit)")
-    
-    # Create editable dataframe for Brand
-    brand_df = filtered_df.copy()
-    
-    # Initialize adjustment columns
-    for month in month_cols:
-        adj_col = f"{month}_brand_adj"
-        if adj_col not in brand_df.columns:
-            brand_df[adj_col] = 0
-        pct_col = f"{month}_brand_pct"
-        if pct_col not in brand_df.columns:
-            brand_df[pct_col] = 0.0
-    
-    # Display editable grid for selected month
-    if cycle_month in month_cols:
-        # Separate for Brand Group 1 and 2
-        brand1_brands = ['ACNEACT', 'AGE CORRECTOR', 'TRUWHITE']
-        brand2_brands = ['ERHAIR', 'HISERHA', 'PERFECT SHIELD', 'SKINSITIVE']
-        
-        brand1_df = brand_df[brand_df['Brand'].isin(brand1_brands)]
-        brand2_df = brand_df[brand_df['Brand'].isin(brand2_brands)]
-        
-        # Brand Group 1
-        st.markdown("**ERHA SKINCARE GROUP 1**")
-        if not brand1_df.empty:
-            brand1_display = brand1_df[[
-                'sku_code', 'Product_Name', 'Brand',
-                cycle_month, f"{cycle_month}_brand_adj"
-            ]].head(10).copy()  # Limit to 10 for display
-            
-            brand1_display.columns = ['SKU', 'Product', 'Brand', 'Baseline', 'Adjustment']
-            
-            brand1_edited = st.data_editor(
-                brand1_display,
-                column_config={
-                    'SKU': st.column_config.TextColumn("SKU", disabled=True),
-                    'Product': st.column_config.TextColumn("Product", disabled=True),
-                    'Brand': st.column_config.TextColumn("Brand", disabled=True),
-                    'Baseline': st.column_config.NumberColumn("Baseline", disabled=True, format="%d"),
-                    'Adjustment': st.column_config.NumberColumn(
-                        "Adjustment",
-                        min_value=-1000000,
-                        max_value=1000000,
-                        step=1,
-                        format="%d"
-                    )
-                },
-                use_container_width=True,
-                height=200,
-                key="brand1_editor"
-            )
-        
-        # Brand Group 2
-        st.markdown("**ERHA SKINCARE GROUP 2**")
-        if not brand2_df.empty:
-            brand2_display = brand2_df[[
-                'sku_code', 'Product_Name', 'Brand',
-                cycle_month, f"{cycle_month}_brand_adj"
-            ]].head(10).copy()
-            
-            brand2_display.columns = ['SKU', 'Product', 'Brand', 'Baseline', 'Adjustment']
-            
-            brand2_edited = st.data_editor(
-                brand2_display,
-                column_config={
-                    'SKU': st.column_config.TextColumn("SKU", disabled=True),
-                    'Product': st.column_config.TextColumn("Product", disabled=True),
-                    'Brand': st.column_config.TextColumn("Brand", disabled=True),
-                    'Baseline': st.column_config.NumberColumn("Baseline", disabled=True, format="%d"),
-                    'Adjustment': st.column_config.NumberColumn(
-                        "Adjustment",
-                        min_value=-1000000,
-                        max_value=1000000,
-                        step=1,
-                        format="%d"
-                    )
-                },
-                use_container_width=True,
-                height=200,
-                key="brand2_editor"
-            )
-
-# ============================================================================
-# CONSENSUS CALCULATION & VISUALIZATION
+# CONSENSUS SUMMARY & ANALYSIS
 # ============================================================================
 st.markdown("---")
-st.markdown('<p class="section-header">✅ Consensus Calculation</p>', unsafe_allow_html=True)
+st.header("📊 Consensus Analysis")
 
-# Create consensus dataframe
-consensus_df = filtered_df.copy()
+if not edited_df.empty:
+    # Calculate totals
+    analysis_cols = ['Baseline_3M_Avg'] + [f"Consensus_{month}" for month in available_months]
+    analysis_cols = [col for col in analysis_cols if col in edited_df.columns]
+    
+    if analysis_cols:
+        # Create summary dataframe
+        summary_data = []
+        total_baseline = edited_df['Baseline_3M_Avg'].sum()
+        
+        for month in available_months:
+            cons_col = f"Consensus_{month}"
+            if cons_col in edited_df.columns:
+                total_consensus = edited_df[cons_col].sum()
+                change = total_consensus - total_baseline
+                change_pct = (change / total_baseline * 100) if total_baseline > 0 else 0
+                
+                summary_data.append({
+                    'Period': month,
+                    'Baseline (3M Avg)': f"{total_baseline:,.0f}",
+                    'Consensus': f"{total_consensus:,.0f}",
+                    'Change (Qty)': f"{change:+,.0f}",
+                    'Change (%)': f"{change_pct:+.1f}%"
+                })
+        
+        summary_df = pd.DataFrame(summary_data)
+        
+        # Display summary
+        col1, col2 = st.columns([3, 2])
+        
+        with col1:
+            st.markdown("#### Total Volume Summary")
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.markdown("#### Key Metrics")
+            
+            if summary_data:
+                # Calculate average growth
+                avg_growth = np.mean([float(d['Change (%)'].replace('%', '').replace('+', '')) 
+                                     for d in summary_data])
+                
+                # Calculate consistency
+                changes = [float(d['Change (%)'].replace('%', '').replace('+', '')) 
+                          for d in summary_data]
+                consistency = 100 - np.std(changes) if len(changes) > 1 else 100
+                
+                st.metric("Avg Growth vs Baseline", f"{avg_growth:+.1f}%")
+                st.metric("Forecast Consistency", f"{consistency:.0f}%")
+                st.metric("SKUs Adjusted", f"{len(edited_df):,}")
 
-if cycle_month in month_cols:
-    # Get adjustments from editors (simplified - in real app would capture from data_editor)
-    consensus_df['Channel_Adj'] = 0  # Placeholder - would come from channel_edited
-    consensus_df['Brand_Adj'] = 0    # Placeholder - would come from brand_edited
-    
-    # Calculate consensus
-    consensus_df['Consensus'] = (
-        consensus_df[cycle_month] + 
-        consensus_df['Channel_Adj'] + 
-        consensus_df['Brand_Adj']
-    )
-    
-    # Calculate variance
-    consensus_df['Variance_%'] = (
-        (consensus_df['Consensus'] - consensus_df[cycle_month]) / 
-        consensus_df[cycle_month].replace(0, 1) * 100
-    ).round(1)
-    
-    # Display consensus summary
-    col1, col2, col3, col4 = st.columns(4)
+# ============================================================================
+# MEETING NOTES & FINALIZATION
+# ============================================================================
+st.markdown("---")
+st.header("💾 Finalize Consensus")
+
+with st.container():
+    col1, col2 = st.columns([3, 1])
     
     with col1:
-        total_baseline = consensus_df[cycle_month].sum()
-        st.metric("Total Baseline", f"{total_baseline:,.0f}")
+        notes = st.text_area(
+            "Meeting Notes & Rationale",
+            placeholder="Document key decisions:\n"
+                       "1. Major adjustments and reasons\n"
+                       "2. Campaign impacts\n"
+                       "3. Market intelligence\n"
+                       "4. Growth assumptions",
+            height=150,
+            key="final_notes"
+        )
     
     with col2:
-        total_consensus = consensus_df['Consensus'].sum()
-        st.metric("Total Consensus", f"{total_consensus:,.0f}")
-    
-    with col3:
-        total_change = total_consensus - total_baseline
-        st.metric("Net Change", f"{total_change:+,.0f}")
-    
-    with col4:
-        avg_variance = consensus_df['Variance_%'].mean()
-        st.metric("Avg Variance", f"{avg_variance:+.1f}%")
-    
-    # Display consensus table
-    st.markdown("#### Consensus Preview")
-    consensus_display = consensus_df[[
-        'sku_code', 'Product_Name', 'Brand_Group', 'Brand',
-        cycle_month, 'Channel_Adj', 'Brand_Adj', 'Consensus', 'Variance_%'
-    ]].head(15)
-    
-    st.dataframe(
-        consensus_display,
-        use_container_width=True,
-        column_config={
-            'sku_code': st.column_config.TextColumn("SKU"),
-            'Product_Name': st.column_config.TextColumn("Product"),
-            'Brand_Group': st.column_config.TextColumn("Brand Group"),
-            'Brand': st.column_config.TextColumn("Brand"),
-            cycle_month: st.column_config.NumberColumn("Baseline", format="%d"),
-            'Channel_Adj': st.column_config.NumberColumn("Channel Adj", format="%+d"),
-            'Brand_Adj': st.column_config.NumberColumn("Brand Adj", format="%+d"),
-            'Consensus': st.column_config.NumberColumn("Consensus", format="%d"),
-            'Variance_%': st.column_config.NumberColumn("Variance %", format="%+.1f%%"),
-        }
-    )
-
-# ============================================================================
-# FINALIZATION SECTION
-# ============================================================================
-st.markdown("---")
-st.markdown('<p class="section-header">💾 Finalize Consensus</p>', unsafe_allow_html=True)
-
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    notes = st.text_area(
-        "Meeting Notes / Justification",
-        placeholder="Document key decisions, rationale for significant adjustments, campaign impacts...",
-        height=100,
-        key="meeting_notes"
-    )
-
-with col2:
-    st.markdown("### Final Approval")
-    
-    # Simulate approval (in real meeting, this would be verbal)
-    approved = st.checkbox("✅ Consensus approved in meeting", value=False, key="approval_check")
-    
-    if approved:
-        save_disabled = False
-        st.success("Ready to save consensus")
-    else:
-        save_disabled = True
-        st.warning("Awaiting meeting approval")
-    
-    # Save button
-    if st.button(
-        "💾 Save Final Consensus to GSheet",
-        type="primary",
-        use_container_width=True,
-        disabled=save_disabled,
-        key="save_consensus"
-    ):
-        with st.spinner("Saving consensus to Google Sheets..."):
-            # Prepare final data
-            final_df = consensus_df.copy()
-            final_df['meeting_date'] = meeting_date.strftime("%Y-%m-%d")
-            final_df['cycle_month'] = cycle_month
-            final_df['notes'] = notes
-            final_df['saved_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Save to GSheet
-            gs = GSheetConnector()
-            
-            # Save to consensus_log sheet
-            log_cols = ['meeting_date', 'cycle_month', 'sku_code', 'Product_Name', 
-                       'Brand_Group', 'Brand', 'baseline', 'channel_adj', 
-                       'brand_adj', 'consensus', 'variance_pct', 'notes', 'saved_at']
-            
-            log_df = pd.DataFrame(columns=log_cols)
-            for _, row in final_df.iterrows():
-                log_df = log_df.append({
-                    'meeting_date': row['meeting_date'],
-                    'cycle_month': cycle_month,
-                    'sku_code': row['sku_code'],
-                    'Product_Name': row['Product_Name'],
-                    'Brand_Group': row['Brand_Group'],
-                    'Brand': row['Brand'],
-                    'baseline': row[cycle_month],
-                    'channel_adj': row['Channel_Adj'],
-                    'brand_adj': row['Brand_Adj'],
-                    'consensus': row['Consensus'],
-                    'variance_pct': row['Variance_%'],
-                    'notes': notes,
-                    'saved_at': row['saved_at']
-                }, ignore_index=True)
-            
-            success = gs.update_sheet("consensus_log", log_df)
-            
-            if success:
-                st.balloons()
-                st.markdown('<div class="success-msg">✅ Consensus successfully saved to Google Sheets!</div>', unsafe_allow_html=True)
+        st.markdown("### Approval")
+        
+        # Simple approval toggle
+        approved = st.toggle("✅ Consensus Approved", value=False, key="approval_toggle")
+        
+        if approved:
+            save_disabled = False
+            st.success("Ready to save")
+        else:
+            save_disabled = True
+            st.warning("Pending approval")
+        
+        # Save button
+        if st.button(
+            "💾 Save to GSheet",
+            type="primary",
+            use_container_width=True,
+            disabled=save_disabled,
+            key="save_final"
+        ):
+            with st.spinner("Saving consensus..."):
+                # Prepare data for saving
+                save_data = edited_df.copy()
                 
-                # Option to update ROFO_current
-                if st.checkbox("Update ROFO_current with new consensus?", value=False):
-                    # Update ROFO for next month
-                    st.info("Feature coming soon - will update ROFO_current sheet")
-            else:
-                st.error("❌ Failed to save consensus. Please try again.")
+                # Add metadata
+                save_data['meeting_date'] = meeting_date.strftime("%Y-%m-%d")
+                save_data['baseline_period'] = baseline_period
+                save_data['notes'] = notes
+                save_data['saved_by'] = "S&OP Meeting"
+                save_data['saved_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Connect to GSheet and save
+                gs = GSheetConnector()
+                
+                # Create consensus log entry
+                log_entries = []
+                for _, row in save_data.iterrows():
+                    for month in available_months:
+                        cons_col = f"Consensus_{month}"
+                        if cons_col in row:
+                            log_entries.append({
+                                'meeting_date': row['meeting_date'],
+                                'sku_code': row['sku_code'],
+                                'product_name': row['Product_Name'],
+                                'brand_group': row['Brand_Group'],
+                                'brand': row['Brand'],
+                                'baseline_3m_avg': row['Baseline_3M_Avg'],
+                                'month': month,
+                                'current_rofo': row.get(month, 0),
+                                'consensus_qty': row[cons_col],
+                                'growth_pct': row.get(f"Consensus_{month}_vs_Baseline_%", 0),
+                                'notes': row['notes'],
+                                'saved_at': row['saved_at']
+                            })
+                
+                if log_entries:
+                    log_df = pd.DataFrame(log_entries)
+                    success = gs.update_sheet("consensus_log", log_df)
+                    
+                    if success:
+                        st.balloons()
+                        st.success("✅ Consensus saved successfully!")
+                        
+                        # Show summary
+                        total_changes = sum([
+                            abs(row.get(month, 0) - row.get(f"Consensus_{month}", 0))
+                            for _, row in save_data.iterrows()
+                            for month in available_months
+                            if f"Consensus_{month}" in row
+                        ])
+                        
+                        st.info(f"**Summary:** {len(log_entries)} month-SKU combinations saved | Total adjustment: {total_changes:,.0f} units")
+                    else:
+                        st.error("❌ Failed to save. Please try again.")
 
 # ============================================================================
 # FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption(f"🤝 S&OP Meeting Dashboard | Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-st.caption("For ERHA Group Internal Use Only")
+st.caption(f"📊 S&OP 3-Month Consensus Dashboard | Meeting: {meeting_date} | Data as of {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption("ERHA Group | For internal S&OP meetings only")
