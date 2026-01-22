@@ -32,20 +32,6 @@ st.markdown("""
     .stDataFrame {
         font-size: 0.9rem;
     }
-    .success-box {
-        padding: 1rem;
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        border-radius: 0.25rem;
-        color: #155724;
-    }
-    .error-box {
-        padding: 1rem;
-        background-color: #f8d7da;
-        border: 1px solid #f5c6cb;
-        border-radius: 0.25rem;
-        color: #721c24;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,7 +54,7 @@ class GSheetConnector:
             self.sheet_id = st.secrets["gsheets"]["sheet_id"]
             self.service_account_info = json.loads(st.secrets["gsheets"]["service_account_info"])
         except:
-            st.error("GSheet credentials not found in secrets. Please check your Streamlit secrets.")
+            st.error("GSheet credentials not found in secrets.")
             raise
         
         self.client = None
@@ -150,7 +136,7 @@ def verify_user(username, password):
         users_df = gs.get_sheet_data("users")
         
         if users_df.empty or 'username' not in users_df.columns:
-            st.error("Users database not found or empty. Please check GSheet.")
+            st.error("Users database not found or empty.")
             return False, None
         
         if username in users_df['username'].values:
@@ -170,39 +156,36 @@ def show_login_page():
     st.title("🔐 S&OP Forecast Dashboard Login")
     st.markdown("---")
     
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        with st.form("login_form"):
-            st.subheader("Please Login")
-            username = st.text_input("Username", placeholder="Enter your username")
-            password = st.text_input("Password", type="password", placeholder="Enter your password")
-            submit = st.form_submit_button("🚀 Login", use_container_width=True)
-            
-            if submit:
-                if not username or not password:
-                    st.error("Please enter both username and password")
-                else:
-                    with st.spinner("Authenticating..."):
-                        authenticated, role = verify_user(username, password)
-                        if authenticated:
-                            st.session_state.authenticated = True
-                            st.session_state.username = username
-                            st.session_state.role = role
-                            st.success(f"Welcome, {username}!")
-                            st.rerun()
-                        else:
-                            st.error("Invalid username or password")
+    with st.form("login_form"):
+        st.subheader("Please Login")
+        username = st.text_input("Username", placeholder="Enter your username", key="login_username")
+        password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
+        submit = st.form_submit_button("🚀 Login", use_container_width=True, key="login_submit")
         
-        st.markdown("---")
-        st.caption("**Login Credentials (Password: 'password' for all):**")
-        st.caption("- Channel/Sales: `channel_sales`")
-        st.caption("- ERHA SKINCARE GROUP 1: `brand_group1`")
-        st.caption("- ERHA SKINCARE GROUP 2: `brand_group2`")
-        st.caption("- Admin/Demand Planner: `demand_planner`")
+        if submit:
+            if not username or not password:
+                st.error("Please enter both username and password")
+            else:
+                with st.spinner("Authenticating..."):
+                    authenticated, role = verify_user(username, password)
+                    if authenticated:
+                        st.session_state.authenticated = True
+                        st.session_state.username = username
+                        st.session_state.role = role
+                        st.success(f"Welcome, {username}!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
+    
+    st.markdown("---")
+    st.caption("**Login Credentials (Password: 'password' for all):**")
+    st.caption("- Channel/Sales: `channel_sales`")
+    st.caption("- ERHA SKINCARE GROUP 1: `brand_group1`")
+    st.caption("- ERHA SKINCARE GROUP 2: `brand_group2`")
+    st.caption("- Admin/Demand Planner: `demand_planner`")
 
 # ============================================================================
-# CHANNEL/SALES PAGE - INCLUDES ALL SKUs (ERHA OTHERS juga)
+# CHANNEL/SALES PAGE
 # ============================================================================
 def show_channel_page(username):
     """Channel/Sales input page - Includes ALL SKUs including ERHA OTHERS"""
@@ -212,16 +195,13 @@ def show_channel_page(username):
     # Initialize connector
     gs = GSheetConnector()
     
-    # Load data - Channel melihat SEMUA SKU termasuk ERHA OTHERS
+    # Load data
     with st.spinner("Loading all SKU data..."):
         rofo_df = gs.get_rofo_current()
         
         if rofo_df.empty:
-            st.error("No ROFO data available. Please check your data source.")
+            st.error("No ROFO data available.")
             return
-        
-        # Channel melihat SEMUA SKU (tidak ada filtering)
-        # ERHA OTHERS akan muncul di sini juga
         
         # Merge dengan stock data
         stock_df = gs.get_sheet_data("stock_onhand")
@@ -243,7 +223,6 @@ def show_channel_page(username):
     # Create input form
     st.subheader("📝 Forecast Adjustment Input")
     st.caption(f"Logged in as: **{username}** | Role: **Channel/Sales**")
-    st.info("⚠️ **Channel/Sales dapat mengakses SEMUA SKU termasuk ERHA OTHERS**")
     
     with st.form("channel_input_form"):
         # Display metrics
@@ -281,7 +260,7 @@ def show_channel_page(username):
         column_config['SKU_Tier'] = st.column_config.TextColumn("SKU Tier", disabled=True)
         column_config['Stock_Qty'] = st.column_config.NumberColumn("Stock Qty", disabled=True, format="%d")
         
-        # Month columns - baseline (readonly) and input (editable)
+        # Month columns
         for month in month_columns:
             column_config[month] = st.column_config.NumberColumn(
                 f"Baseline {month}",
@@ -302,19 +281,22 @@ def show_channel_page(username):
             column_config=column_config,
             use_container_width=True,
             height=400,
-            num_rows="fixed"
+            num_rows="fixed",
+            key="channel_editor"
         )
         
         # Notes field
         notes = st.text_area(
             "Notes / Justification for adjustments",
-            placeholder="Explain significant changes, market insights, promotions..."
+            placeholder="Explain significant changes...",
+            key="channel_notes"
         )
         
         # Submit button
         submit = st.form_submit_button(
             "💾 Save to Channel Input",
-            use_container_width=True
+            use_container_width=True,
+            key="channel_submit"
         )
         
         if submit:
@@ -329,18 +311,15 @@ def show_channel_page(username):
                     baseline = row[baseline_col]
                     new_value = row[input_col]
                     
-                    # Skip if NaN
                     if pd.isna(baseline) or pd.isna(new_value):
                         continue
                     
-                    # Convert to float for calculation
                     try:
                         baseline = float(baseline)
                         new_value = float(new_value)
                     except:
                         continue
                     
-                    # Calculate ±40% limits
                     max_change = baseline * 0.4
                     min_allowed = max(0, baseline - max_change)
                     max_allowed = baseline + max_change
@@ -359,17 +338,13 @@ def show_channel_page(username):
             # Show validation errors if any
             if validation_errors:
                 st.error(f"❌ {len(validation_errors)} adjustments exceed ±40% limit")
-                
-                # Show first 5 errors
-                for error in validation_errors[:5]:
+                for error in validation_errors[:3]:
                     st.error(
-                        f"**{error['sku']} ({error['brand_group']}) - {error['month']}:** "
-                        f"Input {error['input']:.0f} vs Baseline {error['baseline']:.0f} "
-                        f"(Allowed: {error['min_allowed']:.0f} - {error['max_allowed']:.0f})"
+                        f"**{error['sku']} - {error['month']}:** "
+                        f"Input {error['input']:.0f} vs Baseline {error['baseline']:.0f}"
                     )
-                
-                if len(validation_errors) > 5:
-                    st.error(f"... and {len(validation_errors) - 5} more errors")
+                if len(validation_errors) > 3:
+                    st.error(f"... and {len(validation_errors) - 3} more errors")
             
             else:
                 # Prepare data for saving
@@ -409,22 +384,16 @@ def show_channel_page(username):
                         
                         st.success("✅ Channel input saved successfully!")
                         st.balloons()
-                        
-                        # Show summary
-                        st.info(
-                            f"**Summary:** {len(save_df)} SKUs updated | "
-                            f"Saved to sheet: `channel_input`"
-                        )
                     else:
                         st.error("❌ Failed to save data. Please try again.")
 
 # ============================================================================
-# BRAND PAGE (FOR BOTH BRAND GROUPS)
+# BRAND PAGE
 # ============================================================================
 def show_brand_page(username, user_role):
     """Brand input page for both brand groups"""
     
-    # Configuration for brand groups - SESUAI DATA ANDA
+    # Configuration for brand groups
     BRAND_CONFIG = {
         'brand1': {
             'name': 'ERHA SKINCARE GROUP 1',
@@ -445,7 +414,7 @@ def show_brand_page(username, user_role):
     # Get configuration for this user role
     config = BRAND_CONFIG.get(user_role)
     if not config:
-        st.error("Invalid brand configuration. Please contact administrator.")
+        st.error("Invalid brand configuration.")
         return
     
     # Set page title and icon
@@ -457,21 +426,18 @@ def show_brand_page(username, user_role):
     
     # Load data - Filter by brand group
     with st.spinner(f"Loading data for {config['name']}..."):
-        # Get ROFO data
         rofo_df = gs.get_rofo_current()
         
         if rofo_df.empty:
-            st.error("No ROFO data available. Please check your data source.")
+            st.error("No ROFO data available.")
             return
         
         # FILTER: Only show SKUs for this brand group
         if 'Brand_Group' in rofo_df.columns:
-            # Filter by brand groups
             filtered_df = rofo_df[rofo_df['Brand_Group'].isin(config['brand_groups'])]
             
             if filtered_df.empty:
-                st.warning(f"No SKUs found for {config['name']}. Please check Brand_Group configuration.")
-                st.info(f"Looking for brands: {', '.join(config['brand_groups'])}")
+                st.warning(f"No SKUs found for {config['name']}.")
                 return
         else:
             st.error("Brand_Group column not found in ROFO data")
@@ -554,24 +520,28 @@ def show_brand_page(username, user_role):
             column_config=column_config,
             use_container_width=True,
             height=400,
-            num_rows="fixed"
+            num_rows="fixed",
+            key=f"{user_role}_editor"
         )
         
         # Campaign fields
         campaign_name = st.text_input(
             "Campaign Name (if applicable)",
-            placeholder=f"e.g., {config['name']} Q2 Promotion"
+            placeholder=f"e.g., {config['name']} Q2 Promotion",
+            key=f"{user_role}_campaign"
         )
         
         notes = st.text_area(
-            "Adjustment Notes / Justification",
-            placeholder="Explain your forecast adjustments, campaign impact, market insights..."
+            "Adjustment Notes",
+            placeholder="Explain your forecast adjustments...",
+            key=f"{user_role}_notes"
         )
         
         # Submit button
         submit = st.form_submit_button(
             f"💾 Save to {config['name']} Input",
-            use_container_width=True
+            use_container_width=True,
+            key=f"{user_role}_submit"
         )
         
         if submit:
@@ -612,14 +582,13 @@ def show_brand_page(username, user_role):
             
             if validation_errors:
                 st.error(f"❌ {len(validation_errors)} adjustments exceed ±40% limit")
-                for error in validation_errors[:5]:
+                for error in validation_errors[:3]:
                     st.error(
-                        f"**{error['sku']} ({error['brand']}) - {error['month']}:** "
-                        f"Input {error['input']:.0f} vs Baseline {error['baseline']:.0f} "
-                        f"(Allowed: {error['min_allowed']:.0f} - {error['max_allowed']:.0f})"
+                        f"**{error['sku']} - {error['month']}:** "
+                        f"Input {error['input']:.0f} vs Baseline {error['baseline']:.0f}"
                     )
-                if len(validation_errors) > 5:
-                    st.error(f"... and {len(validation_errors) - 5} more errors")
+                if len(validation_errors) > 3:
+                    st.error(f"... and {len(validation_errors) - 3} more errors")
             
             else:
                 # Prepare data for saving
@@ -660,11 +629,6 @@ def show_brand_page(username, user_role):
                         
                         st.success(f"✅ {config['name']} input saved successfully!")
                         st.balloons()
-                        
-                        st.info(
-                            f"**Summary:** {len(save_df)} SKUs updated | "
-                            f"Saved to sheet: `{config['sheet_name']}`"
-                        )
                     else:
                         st.error("❌ Failed to save data. Please try again.")
 
@@ -683,23 +647,23 @@ def show_admin_page(username):
     with st.sidebar:
         st.header("Admin Controls")
         
-        if st.button("🔄 Refresh All Data", use_container_width=True):
+        if st.button("🔄 Refresh All Data", use_container_width=True, key="admin_refresh"):
             st.rerun()
         
         st.markdown("---")
         st.subheader("Consensus Management")
         
-        if st.button("✅ Finalize Consensus", type="primary", use_container_width=True):
+        if st.button("✅ Finalize Consensus", type="primary", use_container_width=True, key="admin_finalize"):
             st.info("Consensus finalization feature coming soon...")
         
         st.markdown("---")
         st.subheader("Export Options")
         
-        if st.button("📊 Export to Excel", use_container_width=True):
+        if st.button("📊 Export to Excel", use_container_width=True, key="admin_export"):
             st.info("Export feature coming soon...")
         
         st.markdown("---")
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("🚪 Logout", use_container_width=True, key="admin_logout"):
             st.session_state.authenticated = False
             st.session_state.username = None
             st.session_state.role = None
@@ -766,8 +730,8 @@ def show_admin_page(username):
                 
                 comparison_data = []
                 
-                # Get values from each source (first 15 SKUs for demo)
-                for idx, sku_row in rofo_df.head(15).iterrows():
+                # Get values from each source (first 10 SKUs)
+                for idx, sku_row in rofo_df.head(10).iterrows():
                     sku_code = sku_row['sku_code']
                     
                     # Get channel input
@@ -808,7 +772,6 @@ def show_admin_page(username):
         st.subheader("Stock Projection Simulation")
         
         if not rofo_df.empty and not stock_df.empty:
-            # Simple stock projection
             month_columns = [col for col in rofo_df.columns if '-' in str(col) and len(str(col)) >= 6]
             
             if month_columns:
@@ -847,19 +810,7 @@ def show_admin_page(username):
         st.subheader("Submission Status")
         
         if not log_df.empty:
-            # Summary by user
-            user_summary = log_df.groupby(['username', 'role']).agg({
-                'submission_date': ['count', 'max']
-            }).reset_index()
-            
-            user_summary.columns = ['Username', 'Role', 'Submission Count', 'Last Submission']
-            
-            st.write("### User Submission Summary")
-            st.dataframe(user_summary, use_container_width=True)
-            
-            st.write("### Recent Submissions")
-            recent_logs = log_df.sort_values('submission_date', ascending=False)
-            st.dataframe(recent_logs, use_container_width=True)
+            st.dataframe(log_df, use_container_width=True)
         else:
             st.info("No submissions yet.")
 
@@ -875,7 +826,7 @@ def main():
             st.write(f"Logged in as: **{st.session_state.username}**")
             st.write(f"Role: **{st.session_state.role}**")
             
-            if st.button("🚪 Logout", use_container_width=True):
+            if st.button("🚪 Logout", use_container_width=True, key="main_logout"):
                 st.session_state.authenticated = False
                 st.session_state.username = None
                 st.session_state.role = None
