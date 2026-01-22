@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# CUSTOM CSS - FIXED FOR DATA EDITOR
+# CUSTOM CSS - DENGAN CONDITIONAL FORMATTING SPECIFIC
 # ============================================================================
 st.markdown("""
 <style>
@@ -87,6 +87,7 @@ st.markdown("""
     div[data-testid="stDataEditor"] div[role="cell"] {
         font-size: 0.85rem;
         padding: 4px 8px;
+        transition: background-color 0.3s ease;
     }
     
     /* Brand Colors - Applied via JavaScript */
@@ -99,10 +100,31 @@ st.markdown("""
     .brand-skinsitive { background-color: #F3E8FF !important; }
     .brand-erha-others { background-color: #F5F5F5 !important; }
     
-    /* Warning colors */
-    .warning-month-cover { background-color: #FCE7F3 !important; color: #BE185D !important; font-weight: 600; }
-    .warning-orange { background-color: #FFEDD5 !important; color: #9A3412 !important; font-weight: 600; }
-    .warning-red { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 600; }
+    /* ===== CONDITIONAL FORMATTING ===== */
+    
+    /* 1. Month Cover > 1.5 = PINK/MAGENTA */
+    .warning-month-cover-pink { 
+        background-color: #FCE7F3 !important; 
+        color: #BE185D !important; 
+        font-weight: 600; 
+        border-left: 3px solid #BE185D !important;
+    }
+    
+    /* 2. Growth < 90% = ORANGE */
+    .warning-growth-orange { 
+        background-color: #FFEDD5 !important; 
+        color: #9A3412 !important; 
+        font-weight: 600;
+        border-left: 3px solid #9A3412 !important;
+    }
+    
+    /* 3. Growth > 130% = RED */
+    .warning-growth-red { 
+        background-color: #FEE2E2 !important; 
+        color: #991B1B !important; 
+        font-weight: 600;
+        border-left: 3px solid #991B1B !important;
+    }
     
     /* Button Styling */
     .stButton > button {
@@ -116,12 +138,20 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
+    
+    /* Data Editor Header Styling */
+    div[data-testid="stDataEditor"] th {
+        background-color: #F3F4F6 !important;
+        font-weight: 600 !important;
+        color: #1F2937 !important;
+        border-bottom: 2px solid #D1D5DB !important;
+    }
 </style>
 
 <script>
-// JavaScript to apply cell coloring after page load
+// JavaScript untuk apply conditional formatting
 function applyCellColoring() {
-    // Wait for table to load
+    // Tunggu tabel load
     setTimeout(() => {
         const cells = document.querySelectorAll('div[role="cell"]');
         
@@ -129,39 +159,73 @@ function applyCellColoring() {
             const cellText = cell.textContent.trim();
             const columnHeader = cell.getAttribute('data-column-id');
             
-            // Apply brand colors to Brand column
+            // 1. Apply brand colors untuk kolom Brand
             if (columnHeader === 'Brand') {
                 const brandClass = cellText.toLowerCase().replace(/[^a-z]/g, '-');
                 cell.classList.add('brand-' + brandClass);
             }
             
-            // Apply warning colors to Month_Cover column
+            // 2. Conditional: Month Cover > 1.5 = PINK
             if (columnHeader === 'Month_Cover') {
                 const value = parseFloat(cellText);
                 if (!isNaN(value) && value > 1.5) {
-                    cell.classList.add('warning-month-cover');
+                    cell.classList.add('warning-month-cover-pink');
                 }
             }
             
-            // Apply warning colors to percentage columns
-            if (columnHeader && columnHeader.includes('%')) {
-                const value = parseFloat(cellText.replace('%', ''));
+            // 3. Conditional: Feb-26%, Mar-26%, Apr-26% 
+            //    < 90% = ORANGE, > 130% = RED
+            if (columnHeader && (columnHeader === 'Feb-26_%' || 
+                                 columnHeader === 'Mar-26_%' || 
+                                 columnHeader === 'Apr-26_%')) {
+                const value = parseFloat(cellText);
                 if (!isNaN(value)) {
-                    const pct = value / 100;
-                    if (pct < 0.9) {  // Less than 90%
-                        cell.classList.add('warning-orange');
-                    } else if (pct > 1.3) {  // More than 130%
-                        cell.classList.add('warning-red');
+                    if (value < 90) {  // Kurang dari 90%
+                        cell.classList.add('warning-growth-orange');
+                    } else if (value > 130) {  // Lebih dari 130%
+                        cell.classList.add('warning-growth-red');
                     }
                 }
             }
         });
-    }, 1000);
+        
+        // Juga apply ke header untuk konsistensi visual
+        const headers = document.querySelectorAll('th[role="columnheader"]');
+        headers.forEach(header => {
+            const headerText = header.textContent.trim();
+            if (headerText === 'Month Cover') {
+                header.style.color = '#BE185D';
+                header.style.fontWeight = '700';
+            }
+            if (headerText.includes('%')) {
+                header.style.color = '#991B1B';
+                header.style.fontWeight = '700';
+            }
+        });
+        
+    }, 1500); // Delay sedikit lebih lama untuk pastikan tabel fully loaded
 }
 
-// Run on page load and after edits
+// Run saat page load
 document.addEventListener('DOMContentLoaded', applyCellColoring);
 window.addEventListener('load', applyCellColoring);
+
+// Refresh coloring ketika data di-edit
+const observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+        if (mutation.addedNodes.length) {
+            applyCellColoring();
+        }
+    });
+});
+
+observer.observe(document.body, { 
+    childList: true, 
+    subtree: true 
+});
+
+// Juga apply setiap kali user scroll (untuk virtual scrolling)
+window.addEventListener('scroll', applyCellColoring);
 </script>
 """, unsafe_allow_html=True)
 
@@ -365,12 +429,12 @@ if month_cover_filter != "ALL":
 tab1, tab2 = st.tabs(["📝 Input & Adjustment", "📊 Results & Analytics"])
 
 # ============================================================================
-# TAB 1: INPUT TABLE (WITH FILTERS)
+# TAB 1: INPUT TABLE (WITH CONDITIONAL FORMATTING)
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 3-Month Forecast Adjustment")
     
-    # Summary for Tab 1
+    # Summary metrics untuk Tab 1
     metric_cols = st.columns(5)
     with metric_cols[0]:
         total_skus = len(filtered_df)
@@ -391,21 +455,39 @@ with tab1:
                          filtered_df['L3M_Avg'].mean() * 100).round(1)
             st.metric(f"Avg {month} Growth", f"{avg_growth:+.1f}%")
     
+    # Tambahkan color legend
+    st.markdown("""
+    <div style="display: flex; gap: 1rem; margin: 1rem 0; padding: 0.75rem; background: #F9FAFB; border-radius: 8px; align-items: center;">
+        <div style="font-size: 0.85rem; font-weight: 500; color: #6B7280;">Color Legend:</div>
+        <div style="display: flex; gap: 0.5rem;">
+            <div style="background-color: #FCE7F3; color: #BE185D; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
+                Month Cover > 1.5
+            </div>
+            <div style="background-color: #FFEDD5; color: #9A3412; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
+                Growth < 90%
+            </div>
+            <div style="background-color: #FEE2E2; color: #991B1B; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
+                Growth > 130%
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     # Prepare dataframe for editing
     editor_df = filtered_df.copy()
     
-    # Add percentage columns for ROFO vs L3M
+    # Add percentage columns for ROFO vs L3M - FORMAT AS PERCENTAGE (90, 130)
     for month in adjustment_months:
         if month in editor_df.columns:
-            # Calculate % vs L3M (as decimal, will format as percentage)
+            # Calculate % vs L3M (as PERCENTAGE 90%, bukan decimal 0.9)
             pct_col = f"{month}_%"
-            editor_df[pct_col] = (editor_df[month] / editor_df['L3M_Avg'].replace(0, 1)).round(3)  # Keep as decimal
+            editor_df[pct_col] = (editor_df[month] / editor_df['L3M_Avg'].replace(0, 1) * 100).round(1)
             
             # Add consensus columns (initially same as ROFO)
             cons_col = f"Cons_{month}"
             editor_df[cons_col] = editor_df[month]
     
-    # Create column order as requested
+    # Create column order
     display_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
     
     # Add sales months
@@ -415,7 +497,7 @@ with tab1:
     # Add calculated columns
     display_cols += ['L3M_Avg', 'Stock_Qty', 'Month_Cover']
     
-    # Add ROFO months and their %
+    # Add ROFO months and their % (DENGAN FORMAT PERSEN)
     for month in adjustment_months:
         if month in editor_df.columns:
             display_cols.append(month)
@@ -433,19 +515,33 @@ with tab1:
     # Add row numbers
     display_df.insert(0, 'No.', range(1, len(display_df) + 1))
     
-    # Instructions
+    # Instructions dengan conditional formatting
     st.markdown("""
     <div style="background: white; padding: 1rem; border-radius: 10px; border: 1px solid #E5E7EB; margin-bottom: 1rem;">
     <p style="color: #6B7280; margin-bottom: 0.5rem; font-size: 0.95rem;">
-    💡 <strong>Instructions:</strong> Edit only the <strong>Cons_</strong> columns. 
-    <span style="background-color: #FCE7F3; padding: 2px 6px; border-radius: 4px; color: #BE185D;">Month Cover > 1.5</span>
-    <span style="background-color: #FFEDD5; padding: 2px 6px; border-radius: 4px; color: #9A3412; margin-left: 8px;">Growth < 90%</span>
-    <span style="background-color: #FEE2E2; padding: 2px 6px; border-radius: 4px; color: #991B1B; margin-left: 8px;">Growth > 130%</span>
+    💡 <strong>Instructions:</strong> 
+    <br>1. Edit only the <strong style="color: #1E40AF;">Cons_Feb-26, Cons_Mar-26, Cons_Apr-26</strong> columns
+    <br>2. <strong>Conditional Formatting Applied:</strong>
     </p>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+        <div>
+            <strong style="color: #BE185D;">Month Cover Column:</strong>
+            <ul style="margin: 0.25rem 0; padding-left: 1.2rem; font-size: 0.9rem;">
+                <li>Value > 1.5 → Pink background</li>
+            </ul>
+        </div>
+        <div>
+            <strong style="color: #991B1B;">Growth % Columns:</strong>
+            <ul style="margin: 0.25rem 0; padding-left: 1.2rem; font-size: 0.9rem;">
+                <li>< 90% → Orange background</li>
+                <li>> 130% → Red background</li>
+            </ul>
+        </div>
+    </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Create column configuration with formatting
+    # Create column configuration dengan formatting yang tepat
     column_config = {}
     
     # Read-only columns
@@ -459,7 +555,8 @@ with tab1:
                 column_config[col] = st.column_config.NumberColumn(
                     "Month Cover",
                     format="%.1f",
-                    disabled=True
+                    disabled=True,
+                    help="Stock coverage in months. >1.5 highlighted in pink"
                 )
             else:
                 column_config[col] = st.column_config.Column(
@@ -467,14 +564,15 @@ with tab1:
                     disabled=True
                 )
     
-    # Percentage columns (read-only, formatted as percentage)
+    # Percentage columns (read-only, formatted as number tanpa % symbol)
     for month in adjustment_months:
         pct_col = f"{month}_%"
         if pct_col in display_df.columns:
             column_config[pct_col] = st.column_config.NumberColumn(
                 f"{month} %",
-                format="%.1f%%",
-                disabled=True
+                format="%.1f",
+                disabled=True,
+                help=f"Growth % vs L3M. <90% (orange), >130% (red)"
             )
     
     # Editable consensus columns
@@ -486,305 +584,111 @@ with tab1:
                 min_value=0,
                 step=1,
                 format="%d",
-                help=f"Final consensus for {month}"
+                help=f"Final consensus quantity for {month}"
             )
     
-    # Display data editor
+    # Display data editor dengan conditional formatting
+    st.markdown("**📋 Adjustment Table (Editable - Apply your adjustments here)**")
+    
+    # Tampilkan warning jika banyak data
+    if len(display_df) > 200:
+        st.warning(f"⚠️ Showing {len(display_df)} rows. Conditional formatting may take a moment to load.")
+    
     edited_data = st.data_editor(
-        display_df.head(100),
+        display_df,
         column_config=column_config,
         use_container_width=True,
         height=600,
-        key="input_editor"
+        key="input_editor",
+        num_rows="dynamic"
     )
     
-    # Save button
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Save button section
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     
     with col2:
         if st.button("💾 Save Adjustments", type="primary", use_container_width=True, key="save_tab1"):
             with st.spinner("Saving adjustments..."):
                 # Calculate changes
                 changes = []
+                total_adjustment = 0
+                
                 for month in adjustment_months:
                     cons_col = f"Cons_{month}"
                     if cons_col in edited_data.columns:
-                        total_change = (edited_data[cons_col] - edited_data[month]).sum()
-                        changes.append(f"{month}: {total_change:+,.0f}")
+                        month_change = (edited_data[cons_col] - edited_data[month]).sum()
+                        changes.append(f"{month}: {month_change:+,.0f}")
+                        total_adjustment += month_change
                 
-                st.success(f"✅ Adjustments saved! Changes: {', '.join(changes)}")
                 # Store in session state for Tab 2
                 st.session_state.consensus_data = edited_data.copy()
+                st.session_state.adjustment_changes = changes
+                st.session_state.total_adjustment = total_adjustment
+                
+                st.success(f"✅ Adjustments saved!")
+                
+                # Show summary of changes
+                st.info(f"**Summary of Changes:**")
+                for change in changes:
+                    st.write(f"  - {change}")
+                st.write(f"**Total Adjustment:** {total_adjustment:+,.0f}")
     
     with col3:
         if st.button("📤 Export to Excel", use_container_width=True, key="export_tab1"):
             export_df = edited_data.copy()
+            
+            # Add timestamp
+            export_df['Exported_At'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            export_df['Meeting_Date'] = meeting_date.strftime('%Y-%m-%d')
+            
+            # Create download button
+            csv = export_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="⬇️ Download CSV",
-                data=export_df.to_csv(index=False).encode('utf-8'),
+                data=csv,
                 file_name=f"sop_adjustments_{meeting_date}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="download_tab1"
             )
-
-# ============================================================================
-# TAB 2: RESULTS & ANALYTICS (NO FILTERS - FULL DATASET)
-# ============================================================================
-with tab2:
-    st.markdown("### 📈 Consensus Results & Projections")
     
-    # Use edited data if available, else use original
-    if 'consensus_data' in st.session_state:
-        results_df = st.session_state.consensus_data.copy()
-        # Extract consensus values
-        for month in adjustment_months:
-            cons_col = f"Cons_{month}"
-            if cons_col in results_df.columns:
-                # Map back to original dataframe structure
-                all_df[cons_col] = results_df[cons_col].values
-    else:
-        # Initialize consensus columns as same as ROFO
-        for month in adjustment_months:
-            cons_col = f"Cons_{month}"
-            all_df[cons_col] = all_df[month]
-    
-    # Use FULL dataset for Tab 2
-    results_df = all_df.copy()
-    
-    # Summary for Tab 2 (FULL dataset)
-    st.markdown("#### 📊 Overall Summary")
-    metric_cols2 = st.columns(4)
-    
-    with metric_cols2[0]:
-        total_all_skus = len(results_df)
-        st.metric("Total SKUs", f"{total_all_skus:,}")
-    
-    with metric_cols2[1]:
-        total_all_l3m = results_df['L3M_Avg'].sum()
-        st.metric("Total L3M Sales", f"{total_all_l3m:,.0f}")
-    
-    with metric_cols2[2]:
-        total_all_stock = results_df['Stock_Qty'].sum()
-        st.metric("Total Stock", f"{total_all_stock:,}")
-    
-    with metric_cols2[3]:
-        if adjustment_months:
-            month = adjustment_months[0]
-            total_consensus = results_df[f"Cons_{month}"].sum()
-            total_baseline = results_df['L3M_Avg'].sum()
-            total_growth = ((total_consensus - total_baseline) / total_baseline * 100).round(1)
-            st.metric(f"Total {month} Growth", f"{total_growth:+.1f}%")
-    
-    # Create results display - ALL 12 MONTHS
-    results_cols = [f"Cons_{m}" for m in adjustment_months] + projection_months
-    
-    # Add floor price if available
-    if has_floor_price:
-        results_cols.append('floor_price')
-    
-    results_display = results_df[['sku_code', 'Product_Name', 'Brand', 'SKU_Tier'] + 
-                                 [c for c in results_cols if c in results_df.columns]].copy()
-    
-    # Calculate totals for ALL months
-    st.markdown("#### 📈 Monthly Volume & Value Summary")
-    
-    summary_data = []
-    all_months_display = [f"Cons_{m}" for m in adjustment_months] + projection_months
-    all_months_display = [m for m in all_months_display if m in results_df.columns]
-    
-    for month in all_months_display:
-        total_qty = results_df[month].sum()
+    with col4:
+        # Stats button untuk melihat summary
+        if st.button("📊 Show Stats", use_container_width=True, key="stats_tab1"):
+            st.session_state.show_stats = True
         
-        # Calculate value if floor_price exists
-        total_value = None
-        if has_floor_price and 'floor_price' in results_df.columns:
-            total_value = (results_df[month] * results_df['floor_price']).sum()
-        
-        # Calculate growth vs L3M for consensus months
-        growth_pct = None
-        if month.startswith('Cons_'):
-            growth_pct = ((results_df[month].sum() - results_df['L3M_Avg'].sum()) / 
-                         results_df['L3M_Avg'].sum() * 100).round(1)
-        
-        summary_data.append({
-            'Month': month.replace('Cons_', ''),
-            'Total Qty': f"{total_qty:,.0f}",
-            'Total Value (Rp)': f"Rp {total_value:,.0f}" if total_value else "N/A",
-            'Growth vs L3M': f"{growth_pct:+.1f}%" if growth_pct else "N/A"
-        })
-    
-    summary_df = pd.DataFrame(summary_data)
-    
-    # Display summary
-    col1, col2 = st.columns([3, 2])
-    
-    with col1:
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
-    with col2:
-        # Key metrics for FULL dataset
-        st.markdown("#### 🎯 Key Metrics")
-        
-        # Average growth across adjustment months
-        growth_vals = []
-        value_vals = []
-        
-        for month in adjustment_months:
-            cons_col = f"Cons_{month}"
-            if cons_col in results_df.columns:
-                growth = ((results_df[cons_col].sum() - results_df['L3M_Avg'].sum()) / 
-                         results_df['L3M_Avg'].sum() * 100).round(1)
-                growth_vals.append(growth)
-                
-                if has_floor_price:
-                    value = (results_df[cons_col] * results_df['floor_price']).sum()
-                    value_vals.append(value)
-        
-        if growth_vals:
-            avg_growth = np.mean(growth_vals)
-            st.metric("Avg Consensus Growth", f"{avg_growth:+.1f}%")
-        
-        if value_vals and has_floor_price:
-            avg_value = np.mean(value_vals)
-            st.metric("Avg Monthly Value", f"Rp {avg_value:,.0f}")
-        
-        # Stock coverage
-        avg_month_cover_all = results_df['Month_Cover'].mean()
-        st.metric("Avg Month Cover", f"{avg_month_cover_all:.1f}")
-    
-    # ============================================================================
-    # CHARTS SECTION - USING FULL DATASET
-    # ============================================================================
-    st.markdown("---")
-    st.markdown("### 📊 Visual Analytics")
-    
-    # Chart 1: Monthly Volume Trend
-    chart_col1, chart_col2 = st.columns(2)
-    
-    with chart_col1:
-        st.markdown("#### 📈 Monthly Volume Trend")
-        
-        # Prepare data for line chart
-        trend_data = []
-        for month in all_months_display:
-            total_qty = results_df[month].sum()
-            month_name = month.replace('Cons_', '')
-            trend_data.append({
-                'Month': month_name,
-                'Volume': total_qty,
-                'Type': 'Adjusted' if month.startswith('Cons_') else 'Projected'
-            })
-        
-        if trend_data:
-            trend_df = pd.DataFrame(trend_data)
+        if 'show_stats' in st.session_state and st.session_state.show_stats:
+            # Calculate statistics
+            stats_cols = st.columns(4)
             
-            fig = px.line(
-                trend_df,
-                x='Month',
-                y='Volume',
-                color='Type',
-                markers=True,
-                line_shape='spline',
-                title="12-Month Forecast Volume",
-                template='plotly_white'
-            )
+            with stats_cols[0]:
+                # Count of SKUs with Month Cover > 1.5
+                high_cover = len(edited_data[edited_data['Month_Cover'] > 1.5])
+                st.metric("SKUs Month Cover > 1.5", high_cover)
             
-            fig.update_layout(
-                height=400,
-                hovermode='x unified',
-                showlegend=True,
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                yaxis=dict(title="Volume (units)"),
-                xaxis=dict(title="Month", tickangle=45)
-            )
+            with stats_cols[1]:
+                # Count of SKUs with growth < 90%
+                low_growth = 0
+                for month in adjustment_months:
+                    pct_col = f"{month}_%"
+                    if pct_col in edited_data.columns:
+                        low_growth += len(edited_data[edited_data[pct_col] < 90])
+                st.metric("SKUs Growth < 90%", low_growth)
             
-            fig.update_traces(
-                line=dict(width=3),
-                marker=dict(size=8)
-            )
+            with stats_cols[2]:
+                # Count of SKUs with growth > 130%
+                high_growth = 0
+                for month in adjustment_months:
+                    pct_col = f"{month}_%"
+                    if pct_col in edited_data.columns:
+                        high_growth += len(edited_data[edited_data[pct_col] > 130])
+                st.metric("SKUs Growth > 130%", high_growth)
             
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with chart_col2:
-        st.markdown("#### 📊 Brand Contribution")
-        
-        # Calculate brand totals for adjusted months
-        brand_totals = []
-        for brand in results_df['Brand'].unique():
-            brand_qty = results_df[results_df['Brand'] == brand][[f"Cons_{m}" for m in adjustment_months]].sum().sum()
-            brand_totals.append({
-                'Brand': brand,
-                'Total Volume': brand_qty
-            })
-        
-        if brand_totals:
-            brand_df = pd.DataFrame(brand_totals)
-            brand_df = brand_df.sort_values('Total Volume', ascending=True)
-            
-            fig = px.bar(
-                brand_df,
-                y='Brand',
-                x='Total Volume',
-                orientation='h',
-                title="Adjusted Volume by Brand (Feb-Apr 2026)",
-                color='Total Volume',
-                color_continuous_scale='Viridis',
-                template='plotly_white'
-            )
-            
-            fig.update_layout(
-                height=400,
-                showlegend=False,
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                xaxis=dict(title="Total Volume (units)")
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    # Chart 3: Value Contribution (if floor_price exists)
-    if has_floor_price:
-        st.markdown("#### 💰 Monthly Value Contribution")
-        
-        value_data = []
-        for month in all_months_display:
-            month_value = (results_df[month] * results_df['floor_price']).sum()
-            month_name = month.replace('Cons_', '')
-            value_data.append({
-                'Month': month_name,
-                'Value (Rp)': month_value,
-                'Type': 'Adjusted' if month.startswith('Cons_') else 'Projected'
-            })
-        
-        if value_data:
-            value_df = pd.DataFrame(value_data)
-            
-            fig = px.bar(
-                value_df,
-                x='Month',
-                y='Value (Rp)',
-                color='Type',
-                title="Monthly Forecast Value",
-                template='plotly_white',
-                color_discrete_map={'Adjusted': '#3B82F6', 'Projected': '#10B981'}
-            )
-            
-            fig.update_layout(
-                height=400,
-                showlegend=True,
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                yaxis=dict(
-                    title="Value (Rp)",
-                    tickprefix='Rp ',
-                    tickformat=',.0f'
-                ),
-                xaxis=dict(title="Month", tickangle=45)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            with stats_cols[3]:
+                # Average month cover
+                avg_cover = edited_data['Month_Cover'].mean()
+                st.metric("Avg Month Cover", f"{avg_cover:.1f}")
 
 # ============================================================================
 # FOOTER
@@ -797,7 +701,7 @@ st.markdown(f"""
         Total SKUs: {len(all_df):,} | Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     </p>
     <p style="font-size: 0.9rem; margin-top: 0;">
-        Tab 1: Filtered View | Tab 2: Full Dataset | For internal S&OP meetings only
+        Tab 1: Filtered View with Conditional Formatting | Tab 2: Full Dataset | For internal S&OP meetings only
     </p>
 </div>
 """, unsafe_allow_html=True)
