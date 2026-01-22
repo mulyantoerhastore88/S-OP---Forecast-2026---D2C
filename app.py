@@ -64,13 +64,9 @@ def main():
             from modules.channel_view import show_channel_page
             show_channel_page(st.session_state.username)
         
-        elif user_role == 'brand1':
-            from modules.brand1_view import show_brand1_page
-            show_brand1_page(st.session_state.username)
-        
-        elif user_role == 'brand2':
-            from modules.brand2_view import show_brand2_page
-            show_brand2_page(st.session_state.username)
+        elif user_role in ['brand1', 'brand2']:
+            from modules.brand_view import show_brand_page
+            show_brand_page(st.session_state.username, user_role)
         
         elif user_role == 'admin':
             from modules.admin_view import show_admin_page
