@@ -7,7 +7,6 @@ import plotly.express as px
 from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
-from typing import Dict, List, Tuple
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -20,7 +19,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# CUSTOM CSS FOR PROFESSIONAL STYLING
+# CUSTOM CSS - FIXED FOR DATA EDITOR
 # ============================================================================
 st.markdown("""
 <style>
@@ -69,83 +68,6 @@ st.markdown("""
         border-color: #3B82F6 !important;
     }
     
-    /* Metric Cards */
-    .metric-card {
-        background: white;
-        padding: 1.2rem;
-        border-radius: 12px;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transform: translateY(-2px);
-    }
-    
-    /* Warning Colors */
-    .warning-pink {
-        background-color: #FCE7F3 !important;  /* Light pink */
-        color: #BE185D !important;
-        font-weight: 600;
-    }
-    
-    .warning-orange {
-        background-color: #FFEDD5 !important;  /* Light orange */
-        color: #9A3412 !important;
-        font-weight: 600;
-    }
-    
-    .warning-red {
-        background-color: #FEE2E2 !important;  /* Light red */
-        color: #991B1B !important;
-        font-weight: 600;
-    }
-    
-    /* Brand Colors */
-    .brand-ACNEACT { background-color: #E0F2FE !important; }
-    .brand-AGE_CORRECTOR { background-color: #F0F9FF !important; }
-    .brand-TRUWHITE { background-color: #F0FDF4 !important; }
-    .brand-ERHAIR { background-color: #FEF3C7 !important; }
-    .brand-HISERHA { background-color: #FEF7CD !important; }
-    .brand-PERFECT_SHIELD { background-color: #FCE7F3 !important; }
-    .brand-SKINSITIVE { background-color: #F3E8FF !important; }
-    .brand-ERHA_OTHERS { background-color: #F5F5F5 !important; }
-    
-    /* Data Table */
-    .dataframe {
-        font-size: 0.85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-    
-    .dataframe th {
-        background-color: #1E3A8A !important;
-        color: white !important;
-        font-weight: 600;
-        text-align: center !important;
-        position: sticky;
-        top: 0;
-        z-index: 100;
-    }
-    
-    .dataframe td {
-        border-bottom: 1px solid #E5E7EB !important;
-    }
-    
-    /* Button Styling */
-    .stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
     /* Filter Section */
     .filter-section {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -161,16 +83,86 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    /* Chart Container */
-    .chart-container {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        margin-bottom: 1.5rem;
+    /* Custom styling for data editor cells */
+    div[data-testid="stDataEditor"] div[role="cell"] {
+        font-size: 0.85rem;
+        padding: 4px 8px;
+    }
+    
+    /* Brand Colors - Applied via JavaScript */
+    .brand-acneact { background-color: #E0F2FE !important; }
+    .brand-age-corrector { background-color: #F0F9FF !important; }
+    .brand-truwhite { background-color: #F0FDF4 !important; }
+    .brand-erhair { background-color: #FEF3C7 !important; }
+    .brand-hiserha { background-color: #FEF7CD !important; }
+    .brand-perfect-shield { background-color: #FCE7F3 !important; }
+    .brand-skinsitive { background-color: #F3E8FF !important; }
+    .brand-erha-others { background-color: #F5F5F5 !important; }
+    
+    /* Warning colors */
+    .warning-month-cover { background-color: #FCE7F3 !important; color: #BE185D !important; font-weight: 600; }
+    .warning-orange { background-color: #FFEDD5 !important; color: #9A3412 !important; font-weight: 600; }
+    .warning-red { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 600; }
+    
+    /* Button Styling */
+    .stButton > button {
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        border: 1px solid #3B82F6;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
 </style>
+
+<script>
+// JavaScript to apply cell coloring after page load
+function applyCellColoring() {
+    // Wait for table to load
+    setTimeout(() => {
+        const cells = document.querySelectorAll('div[role="cell"]');
+        
+        cells.forEach(cell => {
+            const cellText = cell.textContent.trim();
+            const columnHeader = cell.getAttribute('data-column-id');
+            
+            // Apply brand colors to Brand column
+            if (columnHeader === 'Brand') {
+                const brandClass = cellText.toLowerCase().replace(/[^a-z]/g, '-');
+                cell.classList.add('brand-' + brandClass);
+            }
+            
+            // Apply warning colors to Month_Cover column
+            if (columnHeader === 'Month_Cover') {
+                const value = parseFloat(cellText);
+                if (!isNaN(value) && value > 1.5) {
+                    cell.classList.add('warning-month-cover');
+                }
+            }
+            
+            // Apply warning colors to percentage columns
+            if (columnHeader && columnHeader.includes('%')) {
+                const value = parseFloat(cellText.replace('%', ''));
+                if (!isNaN(value)) {
+                    const pct = value / 100;
+                    if (pct < 0.9) {  // Less than 90%
+                        cell.classList.add('warning-orange');
+                    } else if (pct > 1.3) {  // More than 130%
+                        cell.classList.add('warning-red');
+                    }
+                }
+            }
+        });
+    }, 1000);
+}
+
+// Run on page load and after edits
+document.addEventListener('DOMContentLoaded', applyCellColoring);
+window.addEventListener('load', applyCellColoring);
+</script>
 """, unsafe_allow_html=True)
 
 # ============================================================================
@@ -213,18 +205,6 @@ class GSheetConnector:
             return pd.DataFrame(data)
         except:
             return pd.DataFrame()
-    
-    def update_sheet(self, sheet_name, df):
-        try:
-            worksheet = self.sheet.worksheet(sheet_name)
-            worksheet.clear()
-            
-            data = [df.columns.values.tolist()] + df.values.tolist()
-            worksheet.update(data, value_input_option='USER_ENTERED')
-            return True
-        except Exception as e:
-            st.error(f"Error updating sheet {sheet_name}: {str(e)}")
-            return False
 
 # ============================================================================
 # DATA LOADING & PROCESSING
@@ -259,7 +239,7 @@ def load_all_data():
     # Calculate L3M Average
     sales_df['L3M_Avg'] = sales_df[available_sales_months].mean(axis=1).round(0)
     
-    # 5. Get ROFO months (Feb-Apr 2026 for adjustment, May-Jan for projection)
+    # 5. Get ROFO months
     adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
     projection_months = ['May-26', 'Jun-26', 'Jul-26', 'Aug-26', 'Sep-26', 
                          'Oct-26', 'Nov-26', 'Dec-26', 'Jan-27']
@@ -268,17 +248,14 @@ def load_all_data():
     available_rofo_months = [m for m in all_rofo_months if m in rofo_df.columns]
     
     # 6. Merge data
-    # Sales essential columns
     sales_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'L3M_Avg']
     sales_cols += available_sales_months
     sales_essential = sales_df[sales_cols].copy()
     
-    # ROFO essential columns
     rofo_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'floor_price']
     rofo_cols += [m for m in available_rofo_months if m in rofo_df.columns]
     rofo_essential = rofo_df[rofo_cols].copy()
     
-    # Merge
     merged_df = pd.merge(
         sales_essential,
         rofo_essential,
@@ -300,7 +277,7 @@ def load_all_data():
         merged_df['Stock_Qty'] = 0
     
     # Calculate Month Cover
-    merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg']).round(1)
+    merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg'].replace(0, 1)).round(1)
     merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
     
     return {
@@ -311,22 +288,20 @@ def load_all_data():
         'has_floor_price': 'floor_price' in merged_df.columns
     }
 
-# Load data
+# Load ALL data (not filtered)
 with st.spinner("📥 Loading data from Google Sheets..."):
     data_result = load_all_data()
     
 if not data_result:
     st.stop()
 
-df = data_result['data']
+all_df = data_result['data']  # Keep full dataset for Tab 2
 adjustment_months = data_result['adjustment_months']
 projection_months = data_result['projection_months']
 has_floor_price = data_result['has_floor_price']
 
-st.success(f"✅ Loaded {len(df)} SKUs | Adjustment Months: {', '.join(adjustment_months)}")
-
 # ============================================================================
-# FILTER SECTION (TOP OF PAGE)
+# FILTER SECTION (ONLY FOR TAB 1)
 # ============================================================================
 st.markdown("""
 <div class="filter-section">
@@ -337,17 +312,17 @@ col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     st.markdown('<p class="filter-label">Brand Group</p>', unsafe_allow_html=True)
-    brand_groups = ["ALL"] + sorted(df['Brand_Group'].dropna().unique().tolist())
+    brand_groups = ["ALL"] + sorted(all_df['Brand_Group'].dropna().unique().tolist())
     selected_brand_group = st.selectbox("", brand_groups, key="filter_brand_group", label_visibility="collapsed")
 
 with col2:
     st.markdown('<p class="filter-label">Brand</p>', unsafe_allow_html=True)
-    brands = ["ALL"] + sorted(df['Brand'].dropna().unique().tolist())
+    brands = ["ALL"] + sorted(all_df['Brand'].dropna().unique().tolist())
     selected_brand = st.selectbox("", brands, key="filter_brand", label_visibility="collapsed")
 
 with col3:
     st.markdown('<p class="filter-label">SKU Tier</p>', unsafe_allow_html=True)
-    sku_tiers = ["ALL"] + sorted(df['SKU_Tier'].dropna().unique().tolist())
+    sku_tiers = ["ALL"] + sorted(all_df['SKU_Tier'].dropna().unique().tolist())
     selected_tier = st.selectbox("", sku_tiers, key="filter_tier", label_visibility="collapsed")
 
 with col4:
@@ -367,8 +342,8 @@ with col5:
 
 st.markdown("</div></div>", unsafe_allow_html=True)
 
-# Apply filters
-filtered_df = df.copy()
+# Apply filters for Tab 1 only
+filtered_df = all_df.copy()
 if selected_brand_group != "ALL":
     filtered_df = filtered_df[filtered_df['Brand_Group'] == selected_brand_group]
 if selected_brand != "ALL":
@@ -385,44 +360,36 @@ if month_cover_filter != "ALL":
         filtered_df = filtered_df[filtered_df['Month_Cover'] > 3]
 
 # ============================================================================
-# SUMMARY METRICS
-# ============================================================================
-st.markdown("### 📊 Quick Summary")
-metric_cols = st.columns(5)
-
-with metric_cols[0]:
-    total_skus = len(filtered_df)
-    st.metric("Total SKUs", f"{total_skus:,}")
-
-with metric_cols[1]:
-    avg_l3m = filtered_df['L3M_Avg'].mean()
-    st.metric("Avg L3M Sales", f"{avg_l3m:,.0f}")
-
-with metric_cols[2]:
-    total_stock = filtered_df['Stock_Qty'].sum()
-    st.metric("Total Stock", f"{total_stock:,}")
-
-with metric_cols[3]:
-    avg_month_cover = filtered_df['Month_Cover'].mean()
-    st.metric("Avg Month Cover", f"{avg_month_cover:.1f}")
-
-with metric_cols[4]:
-    if adjustment_months:
-        month = adjustment_months[0]
-        avg_growth = ((filtered_df[month].mean() - filtered_df['L3M_Avg'].mean()) / 
-                     filtered_df['L3M_Avg'].mean() * 100).round(1)
-        st.metric(f"Avg {month} Growth", f"{avg_growth:+.1f}%")
-
-# ============================================================================
 # TAB INTERFACE
 # ============================================================================
 tab1, tab2 = st.tabs(["📝 Input & Adjustment", "📊 Results & Analytics"])
 
 # ============================================================================
-# TAB 1: INPUT TABLE
+# TAB 1: INPUT TABLE (WITH FILTERS)
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 3-Month Forecast Adjustment")
+    
+    # Summary for Tab 1
+    metric_cols = st.columns(5)
+    with metric_cols[0]:
+        total_skus = len(filtered_df)
+        st.metric("SKUs in View", f"{total_skus:,}")
+    with metric_cols[1]:
+        avg_l3m = filtered_df['L3M_Avg'].mean()
+        st.metric("Avg L3M Sales", f"{avg_l3m:,.0f}")
+    with metric_cols[2]:
+        total_stock = filtered_df['Stock_Qty'].sum()
+        st.metric("Total Stock", f"{total_stock:,}")
+    with metric_cols[3]:
+        avg_month_cover = filtered_df['Month_Cover'].mean()
+        st.metric("Avg Month Cover", f"{avg_month_cover:.1f}")
+    with metric_cols[4]:
+        if adjustment_months:
+            month = adjustment_months[0]
+            avg_growth = ((filtered_df[month].mean() - filtered_df['L3M_Avg'].mean()) / 
+                         filtered_df['L3M_Avg'].mean() * 100).round(1)
+            st.metric(f"Avg {month} Growth", f"{avg_growth:+.1f}%")
     
     # Prepare dataframe for editing
     editor_df = filtered_df.copy()
@@ -430,9 +397,9 @@ with tab1:
     # Add percentage columns for ROFO vs L3M
     for month in adjustment_months:
         if month in editor_df.columns:
-            # Calculate % vs L3M
+            # Calculate % vs L3M (as decimal, will format as percentage)
             pct_col = f"{month}_%"
-            editor_df[pct_col] = (editor_df[month] / editor_df['L3M_Avg'].replace(0, 1)).round(2)
+            editor_df[pct_col] = (editor_df[month] / editor_df['L3M_Avg'].replace(0, 1)).round(3)  # Keep as decimal
             
             # Add consensus columns (initially same as ROFO)
             cons_col = f"Cons_{month}"
@@ -466,30 +433,47 @@ with tab1:
     # Add row numbers
     display_df.insert(0, 'No.', range(1, len(display_df) + 1))
     
-    # Display the dataframe with editing for consensus columns only
+    # Instructions
     st.markdown("""
-    <div style="background: white; padding: 1rem; border-radius: 10px; border: 1px solid #E5E7EB; margin-bottom: 2rem;">
-    <p style="color: #6B7280; margin-bottom: 1rem;">
-    💡 <strong>Instructions:</strong> Edit only the <strong>Cons_</strong> columns. Other columns are read-only.
-    Percentage warnings: <span style="color: #F59E0B;">Orange = < -10%</span>, 
-    <span style="color: #EF4444;">Red = > +30%</span>,
-    <span style="color: #EC4899;">Pink = Month Cover > 1.5</span>
+    <div style="background: white; padding: 1rem; border-radius: 10px; border: 1px solid #E5E7EB; margin-bottom: 1rem;">
+    <p style="color: #6B7280; margin-bottom: 0.5rem; font-size: 0.95rem;">
+    💡 <strong>Instructions:</strong> Edit only the <strong>Cons_</strong> columns. 
+    <span style="background-color: #FCE7F3; padding: 2px 6px; border-radius: 4px; color: #BE185D;">Month Cover > 1.5</span>
+    <span style="background-color: #FFEDD5; padding: 2px 6px; border-radius: 4px; color: #9A3412; margin-left: 8px;">Growth < 90%</span>
+    <span style="background-color: #FEE2E2; padding: 2px 6px; border-radius: 4px; color: #991B1B; margin-left: 8px;">Growth > 130%</span>
     </p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Create column configuration
+    # Create column configuration with formatting
     column_config = {}
     
     # Read-only columns
     read_only_cols = ['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier'] + \
                      sales_months + ['L3M_Avg', 'Stock_Qty', 'Month_Cover'] + \
-                     adjustment_months + [f"{m}_%" for m in adjustment_months]
+                     adjustment_months
     
     for col in read_only_cols:
         if col in display_df.columns:
-            column_config[col] = st.column_config.Column(
-                col.replace('_', ' ').title(),
+            if col == 'Month_Cover':
+                column_config[col] = st.column_config.NumberColumn(
+                    "Month Cover",
+                    format="%.1f",
+                    disabled=True
+                )
+            else:
+                column_config[col] = st.column_config.Column(
+                    col.replace('_', ' ').title(),
+                    disabled=True
+                )
+    
+    # Percentage columns (read-only, formatted as percentage)
+    for month in adjustment_months:
+        pct_col = f"{month}_%"
+        if pct_col in display_df.columns:
+            column_config[pct_col] = st.column_config.NumberColumn(
+                f"{month} %",
+                format="%.1f%%",
                 disabled=True
             )
     
@@ -507,7 +491,7 @@ with tab1:
     
     # Display data editor
     edited_data = st.data_editor(
-        display_df.head(100),  # Limit for performance
+        display_df.head(100),
         column_config=column_config,
         use_container_width=True,
         height=600,
@@ -518,8 +502,7 @@ with tab1:
     col1, col2, col3 = st.columns([2, 1, 1])
     
     with col2:
-        if st.button("💾 Save Adjustments", type="primary", use_container_width=True):
-            # Process and save the adjustments
+        if st.button("💾 Save Adjustments", type="primary", use_container_width=True, key="save_tab1"):
             with st.spinner("Saving adjustments..."):
                 # Calculate changes
                 changes = []
@@ -530,40 +513,70 @@ with tab1:
                         changes.append(f"{month}: {total_change:+,.0f}")
                 
                 st.success(f"✅ Adjustments saved! Changes: {', '.join(changes)}")
+                # Store in session state for Tab 2
+                st.session_state.consensus_data = edited_data.copy()
     
     with col3:
-        if st.button("📤 Export to Excel", use_container_width=True):
-            # Create export dataframe
+        if st.button("📤 Export to Excel", use_container_width=True, key="export_tab1"):
             export_df = edited_data.copy()
             st.download_button(
-                label="⬇️ Download Excel",
+                label="⬇️ Download CSV",
                 data=export_df.to_csv(index=False).encode('utf-8'),
                 file_name=f"sop_adjustments_{meeting_date}.csv",
                 mime="text/csv",
-                use_container_width=True
+                use_container_width=True,
+                key="download_tab1"
             )
 
 # ============================================================================
-# TAB 2: RESULTS & ANALYTICS
+# TAB 2: RESULTS & ANALYTICS (NO FILTERS - FULL DATASET)
 # ============================================================================
 with tab2:
     st.markdown("### 📈 Consensus Results & Projections")
     
-    # Prepare results dataframe
-    results_df = filtered_df.copy()
+    # Use edited data if available, else use original
+    if 'consensus_data' in st.session_state:
+        results_df = st.session_state.consensus_data.copy()
+        # Extract consensus values
+        for month in adjustment_months:
+            cons_col = f"Cons_{month}"
+            if cons_col in results_df.columns:
+                # Map back to original dataframe structure
+                all_df[cons_col] = results_df[cons_col].values
+    else:
+        # Initialize consensus columns as same as ROFO
+        for month in adjustment_months:
+            cons_col = f"Cons_{month}"
+            all_df[cons_col] = all_df[month]
     
-    # Get consensus values from edited data if available, else use original
-    if 'input_editor' in st.session_state:
-        # In actual implementation, you would process the edited data
-        # For now, we'll use the original data
-        pass
+    # Use FULL dataset for Tab 2
+    results_df = all_df.copy()
     
-    # Initialize consensus columns as same as ROFO
-    for month in adjustment_months:
-        cons_col = f"Cons_{month}"
-        results_df[cons_col] = results_df[month]
+    # Summary for Tab 2 (FULL dataset)
+    st.markdown("#### 📊 Overall Summary")
+    metric_cols2 = st.columns(4)
     
-    # Create results display
+    with metric_cols2[0]:
+        total_all_skus = len(results_df)
+        st.metric("Total SKUs", f"{total_all_skus:,}")
+    
+    with metric_cols2[1]:
+        total_all_l3m = results_df['L3M_Avg'].sum()
+        st.metric("Total L3M Sales", f"{total_all_l3m:,.0f}")
+    
+    with metric_cols2[2]:
+        total_all_stock = results_df['Stock_Qty'].sum()
+        st.metric("Total Stock", f"{total_all_stock:,}")
+    
+    with metric_cols2[3]:
+        if adjustment_months:
+            month = adjustment_months[0]
+            total_consensus = results_df[f"Cons_{month}"].sum()
+            total_baseline = results_df['L3M_Avg'].sum()
+            total_growth = ((total_consensus - total_baseline) / total_baseline * 100).round(1)
+            st.metric(f"Total {month} Growth", f"{total_growth:+.1f}%")
+    
+    # Create results display - ALL 12 MONTHS
     results_cols = [f"Cons_{m}" for m in adjustment_months] + projection_months
     
     # Add floor price if available
@@ -573,33 +586,31 @@ with tab2:
     results_display = results_df[['sku_code', 'Product_Name', 'Brand', 'SKU_Tier'] + 
                                  [c for c in results_cols if c in results_df.columns]].copy()
     
-    # Calculate totals
-    st.markdown("#### 📊 Volume Summary")
+    # Calculate totals for ALL months
+    st.markdown("#### 📈 Monthly Volume & Value Summary")
     
     summary_data = []
-    all_months = [f"Cons_{m}" for m in adjustment_months] + projection_months
-    all_months = [m for m in all_months if m in results_df.columns]
+    all_months_display = [f"Cons_{m}" for m in adjustment_months] + projection_months
+    all_months_display = [m for m in all_months_display if m in results_df.columns]
     
-    for month in all_months:
+    for month in all_months_display:
         total_qty = results_df[month].sum()
         
         # Calculate value if floor_price exists
         total_value = None
-        if has_floor_price:
+        if has_floor_price and 'floor_price' in results_df.columns:
             total_value = (results_df[month] * results_df['floor_price']).sum()
         
         # Calculate growth vs L3M for consensus months
         growth_pct = None
         if month.startswith('Cons_'):
-            base_month = month.replace('Cons_', '')
-            if base_month in results_df.columns:
-                growth_pct = ((results_df[month].sum() - results_df['L3M_Avg'].sum()) / 
-                             results_df['L3M_Avg'].sum() * 100).round(1)
+            growth_pct = ((results_df[month].sum() - results_df['L3M_Avg'].sum()) / 
+                         results_df['L3M_Avg'].sum() * 100).round(1)
         
         summary_data.append({
             'Month': month.replace('Cons_', ''),
             'Total Qty': f"{total_qty:,.0f}",
-            'Total Value (Rp)': f"{total_value:,.0f}" if total_value else "N/A",
+            'Total Value (Rp)': f"Rp {total_value:,.0f}" if total_value else "N/A",
             'Growth vs L3M': f"{growth_pct:+.1f}%" if growth_pct else "N/A"
         })
     
@@ -612,33 +623,38 @@ with tab2:
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     with col2:
-        # Key metrics
-        st.markdown("#### 📈 Key Metrics")
+        # Key metrics for FULL dataset
+        st.markdown("#### 🎯 Key Metrics")
         
-        if adjustment_months:
-            # Average growth across adjustment months
-            growth_vals = []
-            for month in adjustment_months:
-                cons_col = f"Cons_{month}"
-                if cons_col in results_df.columns:
-                    growth = ((results_df[cons_col].sum() - results_df['L3M_Avg'].sum()) / 
-                             results_df['L3M_Avg'].sum() * 100).round(1)
-                    growth_vals.append(growth)
-            
-            if growth_vals:
-                avg_growth = np.mean(growth_vals)
-                st.metric("Avg Consensus Growth", f"{avg_growth:+.1f}%")
-            
-            # Total value
-            if has_floor_price:
-                total_value_all = sum([
-                    (results_df[f"Cons_{m}"] * results_df['floor_price']).sum() 
-                    for m in adjustment_months if f"Cons_{m}" in results_df.columns
-                ])
-                st.metric("Total Value (Adj)", f"Rp {total_value_all:,.0f}")
+        # Average growth across adjustment months
+        growth_vals = []
+        value_vals = []
+        
+        for month in adjustment_months:
+            cons_col = f"Cons_{month}"
+            if cons_col in results_df.columns:
+                growth = ((results_df[cons_col].sum() - results_df['L3M_Avg'].sum()) / 
+                         results_df['L3M_Avg'].sum() * 100).round(1)
+                growth_vals.append(growth)
+                
+                if has_floor_price:
+                    value = (results_df[cons_col] * results_df['floor_price']).sum()
+                    value_vals.append(value)
+        
+        if growth_vals:
+            avg_growth = np.mean(growth_vals)
+            st.metric("Avg Consensus Growth", f"{avg_growth:+.1f}%")
+        
+        if value_vals and has_floor_price:
+            avg_value = np.mean(value_vals)
+            st.metric("Avg Monthly Value", f"Rp {avg_value:,.0f}")
+        
+        # Stock coverage
+        avg_month_cover_all = results_df['Month_Cover'].mean()
+        st.metric("Avg Month Cover", f"{avg_month_cover_all:.1f}")
     
     # ============================================================================
-    # CHARTS SECTION
+    # CHARTS SECTION - USING FULL DATASET
     # ============================================================================
     st.markdown("---")
     st.markdown("### 📊 Visual Analytics")
@@ -651,12 +667,13 @@ with tab2:
         
         # Prepare data for line chart
         trend_data = []
-        for month in all_months:
+        for month in all_months_display:
             total_qty = results_df[month].sum()
+            month_name = month.replace('Cons_', '')
             trend_data.append({
-                'Month': month.replace('Cons_', ''),
+                'Month': month_name,
                 'Volume': total_qty,
-                'Type': 'Consensus' if month.startswith('Cons_') else 'Projection'
+                'Type': 'Adjusted' if month.startswith('Cons_') else 'Projected'
             })
         
         if trend_data:
@@ -669,7 +686,7 @@ with tab2:
                 color='Type',
                 markers=True,
                 line_shape='spline',
-                title="Monthly Forecast Volume",
+                title="12-Month Forecast Volume",
                 template='plotly_white'
             )
             
@@ -678,7 +695,9 @@ with tab2:
                 hovermode='x unified',
                 showlegend=True,
                 plot_bgcolor='white',
-                paper_bgcolor='white'
+                paper_bgcolor='white',
+                yaxis=dict(title="Volume (units)"),
+                xaxis=dict(title="Month", tickangle=45)
             )
             
             fig.update_traces(
@@ -691,10 +710,10 @@ with tab2:
     with chart_col2:
         st.markdown("#### 📊 Brand Contribution")
         
-        # Calculate brand totals
+        # Calculate brand totals for adjusted months
         brand_totals = []
         for brand in results_df['Brand'].unique():
-            brand_qty = results_df[results_df['Brand'] == brand][all_months].sum().sum()
+            brand_qty = results_df[results_df['Brand'] == brand][[f"Cons_{m}" for m in adjustment_months]].sum().sum()
             brand_totals.append({
                 'Brand': brand,
                 'Total Volume': brand_qty
@@ -709,9 +728,9 @@ with tab2:
                 y='Brand',
                 x='Total Volume',
                 orientation='h',
-                title="Total Volume by Brand",
+                title="Adjusted Volume by Brand (Feb-Apr 2026)",
                 color='Total Volume',
-                color_continuous_scale='Blues',
+                color_continuous_scale='Viridis',
                 template='plotly_white'
             )
             
@@ -719,66 +738,24 @@ with tab2:
                 height=400,
                 showlegend=False,
                 plot_bgcolor='white',
-                paper_bgcolor='white'
+                paper_bgcolor='white',
+                xaxis=dict(title="Total Volume (units)")
             )
             
             st.plotly_chart(fig, use_container_width=True)
     
-    # Chart 3: Growth Distribution
-    st.markdown("#### 📈 Growth Distribution vs L3M")
-    
-    # Calculate growth for each SKU
-    growth_data = []
-    for month in adjustment_months:
-        cons_col = f"Cons_{month}"
-        if cons_col in results_df.columns:
-            for _, row in results_df.iterrows():
-                if row['L3M_Avg'] > 0:
-                    growth = (row[cons_col] - row['L3M_Avg']) / row['L3M_Avg'] * 100
-                    growth_data.append({
-                        'Month': month,
-                        'SKU': row['Product_Name'][:20],
-                        'Growth %': growth,
-                        'Brand': row['Brand']
-                    })
-    
-    if growth_data:
-        growth_df = pd.DataFrame(growth_data)
-        
-        fig = px.box(
-            growth_df,
-            x='Month',
-            y='Growth %',
-            color='Brand',
-            title="Growth Distribution by Brand",
-            template='plotly_white',
-            points="all"
-        )
-        
-        fig.update_layout(
-            height=400,
-            showlegend=True,
-            plot_bgcolor='white',
-            paper_bgcolor='white'
-        )
-        
-        # Add horizontal lines for thresholds
-        fig.add_hline(y=-10, line_dash="dash", line_color="orange", annotation_text="-10%")
-        fig.add_hline(y=30, line_dash="dash", line_color="red", annotation_text="+30%")
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Chart 4: Value Contribution
+    # Chart 3: Value Contribution (if floor_price exists)
     if has_floor_price:
-        st.markdown("#### 💰 Value Contribution by Month")
+        st.markdown("#### 💰 Monthly Value Contribution")
         
         value_data = []
-        for month in all_months:
+        for month in all_months_display:
             month_value = (results_df[month] * results_df['floor_price']).sum()
+            month_name = month.replace('Cons_', '')
             value_data.append({
-                'Month': month.replace('Cons_', ''),
+                'Month': month_name,
                 'Value (Rp)': month_value,
-                'Type': 'Consensus' if month.startswith('Cons_') else 'Projection'
+                'Type': 'Adjusted' if month.startswith('Cons_') else 'Projected'
             })
         
         if value_data:
@@ -790,7 +767,8 @@ with tab2:
                 y='Value (Rp)',
                 color='Type',
                 title="Monthly Forecast Value",
-                template='plotly_white'
+                template='plotly_white',
+                color_discrete_map={'Adjusted': '#3B82F6', 'Projected': '#10B981'}
             )
             
             fig.update_layout(
@@ -798,8 +776,12 @@ with tab2:
                 showlegend=True,
                 plot_bgcolor='white',
                 paper_bgcolor='white',
-                yaxis_tickprefix='Rp ',
-                yaxis_tickformat=',.0f'
+                yaxis=dict(
+                    title="Value (Rp)",
+                    tickprefix='Rp ',
+                    tickformat=',.0f'
+                ),
+                xaxis=dict(title="Month", tickangle=45)
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -812,10 +794,10 @@ st.markdown(f"""
 <div style="text-align: center; color: #6B7280; padding: 1rem;">
     <p style="margin-bottom: 0.5rem;">
         📊 <strong>ERHA S&OP Dashboard</strong> | Meeting: {meeting_date} | 
-        SKUs: {total_skus:,} | Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        Total SKUs: {len(all_df):,} | Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     </p>
     <p style="font-size: 0.9rem; margin-top: 0;">
-        For internal S&OP meetings only | Version 2.0 | Powered by Streamlit & Google Sheets
+        Tab 1: Filtered View | Tab 2: Full Dataset | For internal S&OP meetings only
     </p>
 </div>
 """, unsafe_allow_html=True)
