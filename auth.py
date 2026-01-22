@@ -3,6 +3,14 @@ import hashlib
 import pandas as pd
 from datetime import datetime
 
+# Try different import styles for Streamlit Cloud
+try:
+    # For Streamlit Cloud
+    from gsheet_connector import GSheetConnector
+except ImportError:
+    # For local development
+    from .gsheet_connector import GSheetConnector
+
 def hash_password(password):
     """Hash password using SHA256"""
     return hashlib.sha256(password.encode()).hexdigest()
@@ -10,9 +18,12 @@ def hash_password(password):
 def verify_user(username, password):
     """Verify user from GSheet"""
     try:
-        from modules.gsheet_connector import GSheetConnector
         gs = GSheetConnector()
         users_df = gs.get_sheet_data("users")
+        
+        if users_df.empty or 'username' not in users_df.columns:
+            st.error("Users database not found or empty")
+            return False, None
         
         if username in users_df['username'].values:
             user_row = users_df[users_df['username'] == username].iloc[0]
@@ -56,7 +67,7 @@ def show_login_page():
         
         st.markdown("---")
         st.caption("**Demo Users:**")
-        st.caption("- Channel/Sales: `channel_sales`")
-        st.caption("- Brand Group 1: `brand_group1`")
-        st.caption("- Brand Group 2: `brand_group2`")
-        st.caption("- Admin: `demand_planner`")
+        st.caption("- Channel/Sales: `channel_sales` / `channel2026`")
+        st.caption("- Brand Group 1: `brand_group1` / `group12026`")
+        st.caption("- Brand Group 2: `brand_group2` / `group22026`")
+        st.caption("- Admin: `demand_planner` / `planner2026`")
