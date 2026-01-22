@@ -682,8 +682,9 @@ with tab2:
     st.markdown("---")
     st.markdown("#### 📈 Monthly Volume & Value Summary")
     
-    # Prepare monthly summary data
+    # Prepare monthly summary data - SIMPAN DUA VERSI
     summary_data = []
+    display_summary_data = []  # Untuk formatting
     
     # Include semua bulan: adjustment + projection
     all_display_months = [f"Cons_{m}" for m in adjustment_months] + projection_months
@@ -704,42 +705,51 @@ with tab2:
             growth_pct = ((results_df[month].sum() - results_df['L3M_Avg'].sum()) / 
                          results_df['L3M_Avg'].sum() * 100).round(1)
         
+        # Data untuk chart (numerik)
         summary_data.append({
             'Month': month_name,
             'Total Volume': total_qty,
             'Total Value (Rp)': total_value,
             'Growth vs L3M': growth_pct
         })
+        
+        # Data untuk display (diformat)
+        display_row = {
+            'Month': month_name,
+            'Total Volume': f"{total_qty:,.0f}"
+        }
+        
+        if has_floor_price and total_value is not None:
+            display_row['Total Value (Rp)'] = f"Rp {total_value:,.0f}"
+        else:
+            display_row['Total Value (Rp)'] = "N/A"
+        
+        if growth_pct is not None:
+            display_row['Growth vs L3M'] = f"{growth_pct:+.1f}%"
+        else:
+            display_row['Growth vs L3M'] = "N/A"
+        
+        display_summary_data.append(display_row)
     
-    summary_df = pd.DataFrame(summary_data)
-    
-    # Format untuk display
-    display_summary = summary_df.copy()
-    display_summary['Total Volume'] = display_summary['Total Volume'].apply(lambda x: f"{x:,.0f}")
-    
-    if has_floor_price:
-        display_summary['Total Value (Rp)'] = display_summary['Total Value (Rp)'].apply(
-            lambda x: f"Rp {x:,.0f}" if pd.notnull(x) else "N/A"
-        )
-    
-    display_summary['Growth vs L3M'] = display_summary['Growth vs L3M'].apply(
-        lambda x: f"{x:+.1f}%" if pd.notnull(x) else "N/A"
-    )
+    # Buat DataFrames terpisah
+    summary_df = pd.DataFrame(summary_data)  # Untuk chart (numerik)
+    display_summary_df = pd.DataFrame(display_summary_data)  # Untuk display (formatted)
     
     # Display summary table
     col1, col2 = st.columns([3, 2])
     
     with col1:
-        st.dataframe(display_summary, use_container_width=True, hide_index=True)
+        st.dataframe(display_summary_df, use_container_width=True, hide_index=True)
     
     with col2:
         # Key metrics card
         st.markdown("#### 🎯 Key Metrics")
         
-        # Calculate averages
-        if 'changes_summary' in st.session_state:
-            avg_growth = np.mean([c['change_pct'] for c in st.session_state.changes_summary])
-            st.metric("Avg Consensus Growth", f"{avg_growth:+.1f}%")
+        # Calculate averages dari summary_df (yang numerik)
+        growth_values = summary_df['Growth vs L3M'].dropna()
+        if not growth_values.empty:
+            avg_growth = growth_values.mean()
+            st.metric("Avg Growth vs L3M", f"{avg_growth:+.1f}%")
         
         # Stock metrics
         high_cover_count = len(results_df[results_df['Month_Cover'] > 1.5])
@@ -749,9 +759,15 @@ with tab2:
         st.metric("Overall Avg Month Cover", f"{avg_month_cover_all:.1f}")
         
         if has_floor_price:
-            total_value_all = (results_df[['Cons_Feb-26', 'Cons_Mar-26', 'Cons_Apr-26']].sum().sum() * 
-                             results_df['floor_price'].mean())
-            st.metric("Total Consensus Value", f"Rp {total_value_all:,.0f}")
+            # Hitung total value dari 3 bulan adjustment
+            adjustment_value = 0
+            for month in adjustment_months:
+                cons_col = f"Cons_{month}"
+                if cons_col in results_df.columns:
+                    month_value = (results_df[cons_col] * results_df['floor_price']).sum()
+                    adjustment_value += month_value
+            
+            st.metric("Total 3-Month Value", f"Rp {adjustment_value:,.0f}")
     
     # =================================================================
     # VISUAL ANALYTICS
