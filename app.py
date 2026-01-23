@@ -339,6 +339,25 @@ tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics"])
 # TAB 1: WORKSHEET - DIUBAH AGAR LEBIH FLEKSIBEL
 # ============================================================================
 with tab1:
+    # INFORMASI WARNA KOLOM (JANGAN DIHAPUS)
+    st.markdown("""
+    <div style="background-color:#F0F9FF; padding:15px; border-radius:8px; border-left:4px solid #3B82F6; margin-bottom:20px;">
+    <h4 style="color:#1E40AF; margin-top:0;">🎨 Color Code Legend:</h4>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px;">
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#CCFBF1; margin-right:8px; border-left:3px solid #14B8A6;"></span><b>Product Focus:</b> Green highlight for priority SKUs</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#E0F2FE; margin-right:8px;"></span><b>Acne Products:</b> Light blue background</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#DCFCE7; margin-right:8px;"></span><b>Tru Skincare:</b> Light green background</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#FEF3C7; margin-right:8px;"></span><b>Hair Products:</b> Light yellow background</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#E0E7FF; margin-right:8px;"></span><b>Age Products:</b> Light purple background</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#F3E8FF; margin-right:8px;"></span><b>His Products:</b> Light lavender background</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#FCE7F3; margin-right:8px;"></span><b>High Stock Cover:</b> Pink highlight (>1.5 months)</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#FFEDD5; margin-right:8px;"></span><b>Low % (<90%):</b> Orange highlight (below L3M average)</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#FEE2E2; margin-right:8px;"></span><b>High % (>130%):</b> Red highlight (above L3M average)</div>
+        <div><span style="display:inline-block; width:12px; height:12px; background-color:#EFF6FF; margin-right:8px; border:1px solid #93C5FD;"></span><b>Editable Cells:</b> Blue border for consensus months</div>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     edit_df = filtered_df.copy()
     edit_df = calculate_pct(edit_df, cycle_months)
     
@@ -372,7 +391,7 @@ with tab1:
     
     ag_df = edit_df[ag_cols].copy()
 
-    # JavaScript untuk styling
+    # JavaScript untuk styling - PERBAIKAN: Hanya Brand yang dapat warna
     js_sku_focus = JsCode("""
         function(p) { 
             if(p.data.Product_Focus === 'Yes') 
@@ -381,6 +400,7 @@ with tab1:
         }
     """)
     
+    # PERBAIKAN: Hanya kolom Brand yang dapat warna, Product_Name normal
     js_brand = JsCode("""
         function(p) { 
             if(!p.value) return null; 
@@ -390,7 +410,7 @@ with tab1:
             if(b.includes('hair')) return {'backgroundColor':'#FEF3C7','color':'#D97706','fontWeight':'bold'}; 
             if(b.includes('age')) return {'backgroundColor':'#E0E7FF','color':'#4F46E5','fontWeight':'bold'}; 
             if(b.includes('his')) return {'backgroundColor':'#F3E8FF','color':'#7C3AED','fontWeight':'bold'}; 
-            return {'backgroundColor':'#F3F4F6'}; 
+            return null; 
         }
     """)
     
@@ -454,7 +474,7 @@ with tab1:
         suppressSizeToFit=False  # Izinkan size to fit
     )
     
-    # Kolom tetap di kiri
+    # Kolom tetap di kiri - PERBAIKAN: Product_Name TANPA cellStyle js_brand
     gb.configure_column("sku_code", 
                        pinned="left", 
                        width=90,  # Lebih kecil
@@ -467,8 +487,7 @@ with tab1:
                        minWidth=150,
                        maxWidth=300,
                        flex=2,  # Lebih fleksibel
-                       cellStyle=js_brand,
-                       suppressSizeToFit=False)
+                       suppressSizeToFit=False)  # TANPA styling warna brand!
     
     gb.configure_column("Channel", 
                        pinned="left", 
@@ -481,9 +500,9 @@ with tab1:
     gb.configure_column("Product_Focus", hide=True)
     gb.configure_column("floor_price", hide=True)
     
-    # Kolom lainnya
+    # PERBAIKAN: Hanya kolom Brand yang dapat warna branding
     gb.configure_column("Brand", 
-                       cellStyle=js_brand, 
+                       cellStyle=js_brand,  # Hanya di sini!
                        width=100,
                        maxWidth=150,
                        flex=1,
@@ -562,16 +581,13 @@ with tab1:
     </style>
     """, unsafe_allow_html=True)
     
-    # Tampilkan grid dengan konfigurasi responsif
-    st.markdown("**Tips:** Gunakan scroll horizontal untuk melihat semua kolom. Tabel akan menyesuaikan dengan ukuran layar.")
-    
     # Container untuk grid dengan CSS responsif
     with stylable_container(
         key="responsive_grid",
         css_styles="""
             {
-                height: 70vh !important;
-                min-height: 500px;
+                height: 65vh !important;
+                min-height: 450px;
                 overflow: auto;
                 border: 1px solid #e2e8f0;
                 border-radius: 8px;
@@ -580,7 +596,7 @@ with tab1:
             }
             @media screen and (max-width: 768px) {
                 div {
-                    height: 60vh !important;
+                    height: 55vh !important;
                 }
             }
         """
@@ -590,7 +606,7 @@ with tab1:
             gridOptions=grid_options,
             allow_unsafe_jscode=True,
             update_mode=GridUpdateMode.VALUE_CHANGED,
-            height=600,  # Height relatif
+            height=550,  # Height relatif
             theme='alpine',
             key='v5_worksheet',
             use_container_width=True,
