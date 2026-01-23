@@ -7,7 +7,7 @@ import plotly.express as px
 from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode, JsCode
 from streamlit_extras.metric_cards import style_metric_cards
 from streamlit_extras.stylable_container import stylable_container
 from streamlit_extras.toggle_switch import st_toggle_switch
@@ -439,6 +439,14 @@ with tab1:
     if selected_tier != "ALL":
         filtered_df = filtered_df[filtered_df['SKU_Tier'] == selected_tier]
     
+    # Apply month cover filter
+    if month_cover_filter == "< 1.5 months":
+        filtered_df = filtered_df[filtered_df['Month_Cover'] < 1.5]
+    elif month_cover_filter == "1.5 - 3 months":
+        filtered_df = filtered_df[(filtered_df['Month_Cover'] >= 1.5) & (filtered_df['Month_Cover'] <= 3)]
+    elif month_cover_filter == "> 3 months":
+        filtered_df = filtered_df[filtered_df['Month_Cover'] > 3]
+    
     # Prepare data untuk AgGrid
     display_df = filtered_df[['sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 
                              'Oct-25', 'Nov-25', 'Dec-25', 'L3M_Avg', 
@@ -457,20 +465,13 @@ with tab1:
         filterable=True,
         sortable=True,
         resizable=True,
-        editable=False
+        editable=False,
+        minWidth=100
     )
     
     # Buat consensus columns editable
     for month in ['Feb-26', 'Mar-26', 'Apr-26']:
-        gb.configure_column(f'Cons_{month}', editable=True)
-    
-    # Konfigurasi kolom numeric
-    numeric_cols = ['Oct-25', 'Nov-25', 'Dec-25', 'L3M_Avg', 'Stock_Qty', 
-                   'Feb-26', 'Mar-26', 'Apr-26'] + [f'Cons_{m}' for m in ['Feb-26', 'Mar-26', 'Apr-26']]
-    
-    for col in numeric_cols:
-        if col in display_df.columns:
-            gb.configure_column(col, type=["numericColumn", "numberColumnFilter"])
+        gb.configure_column(f'Cons_{month}', editable=True, type=["numericColumn", "numberColumnFilter"])
     
     # Cell styling berdasarkan rules
     cellstyle_jscode = JsCode("""
@@ -503,13 +504,23 @@ with tab1:
     }
     """)
     
-    gb.configure_grid_options(rowStyle=cellstyle_jscode)
+    gb.configure_grid_options(
+        rowStyle=cellstyle_jscode,
+        getRowStyle=cellstyle_jscode
+    )
     
     # Configure pagination
-    gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=20)
+    gb.configure_pagination(
+        paginationAutoPageSize=False,
+        paginationPageSize=20
+    )
     
     # Configure selection
-    gb.configure_selection('multiple', use_checkbox=True)
+    gb.configure_selection(
+        'multiple',
+        use_checkbox=True,
+        pre_selected_rows=[]
+    )
     
     # Build grid options
     grid_options = gb.build()
@@ -517,24 +528,30 @@ with tab1:
     # Display AgGrid
     st.markdown("**Interactive Data Grid (Double-click cells to edit):**")
     
-    grid_response = AgGrid(
-        display_df,
-        gridOptions=grid_options,
-        height=500,
-        width='100%',
-        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-        update_mode=GridUpdateMode.MODEL_CHANGED,
-        fit_columns_on_grid_load=True,
-        theme='streamlit',
-        allow_unsafe_jscode=True
-    )
+    try:
+        grid_response = AgGrid(
+            display_df,
+            gridOptions=grid_options,
+            height=500,
+            width='100%',
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            update_mode=GridUpdateMode.MODEL_CHANGED,
+            fit_columns_on_grid_load=True,
+            theme='streamlit',
+            allow_unsafe_jscode=True,
+            reload_data=False
+        )
+    except Exception as e:
+        st.error(f"Error loading AgGrid: {e}")
+        st.dataframe(display_df, use_container_width=True)
+        grid_response = {'selected_rows': []}
     
     # Display selected rows
-    selected = grid_response['selected_rows']
+    selected = grid_response.get('selected_rows', [])
     if len(selected) > 0:
         st.info(f"📌 {len(selected)} rows selected")
         with st.expander("View Selected Rows"):
-            st.dataframe(selected, use_container_width=True)
+            st.dataframe(pd.DataFrame(selected), use_container_width=True)
     
     # Consensus Actions
     st.markdown("---")
@@ -864,3 +881,47 @@ with footer_cols[2]:
     </div>
     """, unsafe_allow_html=True)
 
+# ============================================================================
+# DEPLOYMENT INSTRUCTIONS
+# ============================================================================
+with st.expander("🚀 Deployment Instructions", expanded=False):
+    st.markdown("""
+    ### **Deploy to Streamlit Cloud**
+    
+    1. **Push to GitHub:**
+    ```bash
+    git add .
+    git commit -m "Add modern S&OP dashboard"
+    git push origin main
+    ```
+    
+    2. **Go to [share.streamlit.io](https://share.streamlit.io)**
+    3. **Click "New app"** → Select repository
+    4. **Set main file to:** `app.py`
+    5. **Add secrets:** (in Streamlit Cloud dashboard)
+    ```toml
+    [gsheets]
+    sheet_id = "your-sheet-id"
+    service_account_info = '{"type": "service_account", ...}'
+    ```
+    
+    ### **Requirements File**
+    Create `requirements.txt`:
+    ```txt
+    streamlit>=1.28.0
+    pandas>=2.0.0
+    numpy>=1.24.0
+    plotly>=5.17.0
+    gspread>=5.11.0
+    google-auth>=2.23.0
+    streamlit-aggrid>=0.3.4
+    streamlit-extras>=0.4.0
+    streamlit-autorefresh>=0.1.4
+    ```
+    
+    ### **Alternative Hosting:**
+    - **Hugging Face Spaces:** Free, public only
+    - **Render:** Free tier available
+    - **Railway:** $5/month starter
+    - **AWS EC2:** ~$10/month
+    """)
