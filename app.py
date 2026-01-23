@@ -75,6 +75,107 @@ st.markdown("""
         font-weight: 400;
     }
     
+    /* Table Container dengan Frozen Header */
+    .table-container {
+        max-height: 500px;
+        overflow-y: auto;
+        overflow-x: auto;
+        border: 1px solid #E5E7EB;
+        border-radius: 8px;
+        margin: 15px 0;
+        position: relative;
+    }
+    
+    /* Fixed Header */
+    .sticky-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background-color: #1E3A8A !important;
+    }
+    
+    .sticky-header th {
+        position: sticky;
+        top: 0;
+        background-color: #1E3A8A !important;
+        color: white !important;
+        font-weight: 600;
+        padding: 12px 8px !important;
+        border-bottom: 2px solid #D1D5DB;
+    }
+    
+    /* Table styling */
+    .forecast-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85em;
+    }
+    
+    .forecast-table th, .forecast-table td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid #E5E7EB;
+        white-space: nowrap;
+    }
+    
+    .forecast-table th {
+        background-color: #1E3A8A;
+        color: white;
+        font-weight: 600;
+    }
+    
+    .forecast-table tr:hover {
+        background-color: #F3F4F6;
+    }
+    
+    /* Conditional Formatting */
+    .month-cover-high {
+        background-color: #FCE7F3 !important;
+        color: #BE185D !important;
+        font-weight: 600 !important;
+        border-left: 3px solid #BE185D !important;
+    }
+    
+    .growth-low {
+        background-color: #FFEDD5 !important;
+        color: #9A3412 !important;
+        font-weight: 600 !important;
+        border-left: 3px solid #9A3412 !important;
+    }
+    
+    .growth-high {
+        background-color: #FEE2E2 !important;
+        color: #991B1B !important;
+        font-weight: 600 !important;
+        border-left: 3px solid #991B1B !important;
+    }
+    
+    /* Brand Colors */
+    .brand-acneact { background-color: #E0F2FE !important; }
+    .brand-age-corrector { background-color: #F0F9FF !important; }
+    .brand-truwhite { background-color: #F0FDF4 !important; }
+    .brand-erhair { background-color: #FEF3C7 !important; }
+    .brand-hiserha { background-color: #FEF7CD !important; }
+    .brand-perfect-shield { background-color: #FCE7F3 !important; }
+    .brand-skinsitive { background-color: #F3E8FF !important; }
+    
+    /* Percentage styling */
+    .percentage-cell {
+        text-align: right !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Consensus cell styling (editable) */
+    .consensus-cell {
+        background-color: #F0F9FF !important;
+        border: 1px solid #3B82F6 !important;
+        font-weight: 600 !important;
+    }
+    
+    .consensus-cell:hover {
+        background-color: #DBEAFE !important;
+    }
+    
     /* Modern Cards */
     .metric-card {
         background: white;
@@ -121,49 +222,34 @@ st.markdown("""
         border-bottom: 3px solid var(--primary) !important;
     }
     
-    /* Modern Filter Bar */
-    .filter-bar {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        margin-bottom: 2rem;
+    /* Color Legend Styling */
+    .color-legend {
         display: flex;
         gap: 1rem;
+        margin: 1rem 0;
+        padding: 0.75rem;
+        background: #F9FAFB;
+        border-radius: 8px;
         align-items: center;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        flex-wrap: wrap;
     }
     
-    /* Badge Styles */
-    .badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin: 0 4px;
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
     }
     
-    .badge-primary { background: #DBEAFE; color: #1E40AF; }
-    .badge-success { background: #D1FAE5; color: #065F46; }
-    .badge-warning { background: #FEF3C7; color: #92400E; }
-    .badge-danger { background: #FEE2E2; color: #991B1B; }
-    
-    /* Loading Animation */
-    .loading-pulse {
-        animation: pulse 2s infinite;
+    .color-box {
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
     }
     
-    @keyframes pulse {
-        0% { opacity: 0.6; }
-        50% { opacity: 1; }
-        100% { opacity: 0.6; }
-    }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-        .main-title { font-size: 2rem; }
-        .filter-bar { flex-direction: column; }
+    .legend-text {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: #4B5563;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -175,7 +261,7 @@ st.markdown("""
 # st_autorefresh(interval=5 * 60 * 1000, key="data_refresh")
 
 # ============================================================================
-# GSHEET CONNECTOR CLASS (YOUR CODE)
+# GSHEET CONNECTOR CLASS
 # ============================================================================
 class GSheetConnector:
     def __init__(self):
@@ -219,32 +305,9 @@ class GSheetConnector:
         except Exception as e:
             st.error(f"Error updating sheet {sheet_name}: {str(e)}")
             return False
-    
-    def append_to_sheet(self, sheet_name, data_dict):
-        """Append single row to sheet"""
-        try:
-            worksheet = self.sheet.worksheet(sheet_name)
-            worksheet.append_row(list(data_dict.values()))
-            return True
-        except Exception as e:
-            st.error(f"Error appending to sheet {sheet_name}: {str(e)}")
-            return False
-    
-    def get_rofo_current(self):
-        """Get ROFO current data with proper column handling"""
-        df = self.get_sheet_data("rofo_current")
-        
-        # Identify month columns (Feb-26, Mar-26, etc.)
-        month_columns = [col for col in df.columns if '-' in str(col) and len(str(col)) >= 6]
-        
-        # Keep only relevant columns
-        keep_columns = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'] + month_columns
-        keep_columns = [col for col in keep_columns if col in df.columns]
-        
-        return df[keep_columns]
 
 # ============================================================================
-# DATA LOADER DENGAN GSHEETCONNECTOR ASLI
+# DATA LOADER DENGAN GSHEETCONNECTOR
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_all_data():
@@ -259,7 +322,7 @@ def load_all_data():
         status_text.text("🔄 Connecting to Google Sheets...")
         progress_bar.progress(10)
         
-        # Gunakan GSheetConnector Anda
+        # Gunakan GSheetConnector
         gs = GSheetConnector()
         
         # Step 2: Load sales history
@@ -285,11 +348,11 @@ def load_all_data():
         progress_bar.progress(70)
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # Step 5: Process data sesuai kebutuhan
+        # Step 5: Process data
         status_text.text("⚙️ Processing data...")
         progress_bar.progress(90)
         
-        # ===== PROSES DATA (sama seperti script asli Anda) =====
+        # ===== PROSES DATA =====
         
         # 1. Get last 3 months sales (Oct, Nov, Dec 2025)
         sales_months = ['Oct-25', 'Nov-25', 'Dec-25']
@@ -303,10 +366,7 @@ def load_all_data():
         
         # 2. Get ROFO months
         adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-        projection_months = ['May-26', 'Jun-26', 'Jul-26', 'Aug-26', 'Sep-26', 
-                            'Oct-26', 'Nov-26', 'Dec-26', 'Jan-27']
-        
-        all_rofo_months = adjustment_months + projection_months
+        all_rofo_months = adjustment_months
         available_rofo_months = [m for m in all_rofo_months if m in rofo_df.columns]
         
         # 3. Merge data
@@ -315,7 +375,6 @@ def load_all_data():
         sales_essential = sales_df[sales_cols].copy()
         
         rofo_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier']
-        # Cari kolom floor_price jika ada
         if 'floor_price' in rofo_df.columns:
             rofo_cols.append('floor_price')
         rofo_cols += [m for m in available_rofo_months if m in rofo_df.columns]
@@ -367,13 +426,12 @@ def load_all_data():
         
         status_text.text("✅ Data loaded successfully!")
         progress_bar.progress(100)
-        time.sleep(0.5)  # Biar loading terlihat
+        time.sleep(0.5)
         status_text.empty()
         progress_bar.empty()
         
         # Simpan informasi bulan ke session state
         st.session_state.adjustment_months = [m for m in adjustment_months if m in available_rofo_months]
-        st.session_state.projection_months = [m for m in projection_months if m in available_rofo_months]
         
         return merged_df
         
@@ -381,7 +439,7 @@ def load_all_data():
         status_text.empty()
         progress_bar.empty()
         st.error(f"❌ Error loading data: {str(e)}")
-        st.info("⚠️ Using demo data for now. Check your Google Sheets connection.")
+        st.info("⚠️ Using demo data for now.")
         
         # Fallback ke data dummy
         return create_demo_data()
@@ -424,10 +482,84 @@ def create_demo_data():
     
     # Simpan ke session state
     st.session_state.adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-    st.session_state.projection_months = []
-    st.session_state.has_floor_price = True
     
     return df
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+def calculate_percentage_columns(df):
+    """Calculate percentage columns vs L3M Avg"""
+    df_calc = df.copy()
+    
+    for month in st.session_state.adjustment_months:
+        if month in df_calc.columns and 'L3M_Avg' in df_calc.columns:
+            pct_col = f'{month}_%'
+            # Calculate percentage
+            df_calc[pct_col] = (df_calc[month] / df_calc['L3M_Avg'].replace(0, np.nan) * 100).round(1)
+            # Replace inf and nan
+            df_calc[pct_col] = df_calc[pct_col].replace([np.inf, -np.inf], 0).fillna(100)
+    
+    return df_calc
+
+def create_html_table_with_frozen_header(df):
+    """Create HTML table with frozen header and conditional formatting"""
+    
+    html = """
+    <div class="table-container">
+        <table class="forecast-table">
+            <thead class="sticky-header">
+                <tr>
+    """
+    
+    # Header row
+    for col in df.columns:
+        display_name = col.replace('_', ' ').replace('-', ' ').replace('Cons ', 'Consensus ')
+        html += f'<th>{display_name}</th>'
+    
+    html += '</tr></thead><tbody>'
+    
+    # Data rows dengan conditional formatting
+    for idx, row in df.iterrows():
+        html += '<tr>'
+        
+        for col in df.columns:
+            value = row[col]
+            cell_class = ''
+            display_value = value
+            
+            # Format persentase
+            if '_%' in col and isinstance(value, (int, float)):
+                display_value = f"{value:.1f}%"
+                cell_class += 'percentage-cell '
+                
+                # Conditional formatting untuk persentase
+                if value < 90:
+                    cell_class += 'growth-low '
+                elif value > 130:
+                    cell_class += 'growth-high '
+            
+            # Conditional formatting untuk Month_Cover
+            elif col == 'Month_Cover' and isinstance(value, (int, float)):
+                if value > 1.5:
+                    cell_class += 'month-cover-high '
+            
+            # Brand coloring
+            elif col == 'Brand' and isinstance(value, str):
+                brand_lower = value.lower().replace(' ', '-').replace('_', '-')
+                cell_class += f'brand-{brand_lower} '
+            
+            # Consensus cells styling
+            elif col.startswith('Cons_'):
+                cell_class += 'consensus-cell '
+            
+            html += f'<td class="{cell_class.strip()}">{display_value}</td>'
+        
+        html += '</tr>'
+    
+    html += '</tbody></table></div>'
+    
+    return html
 
 # ============================================================================
 # MODERN HEADER
@@ -452,7 +584,7 @@ with st.container():
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# MEETING INFO BAR - MODERN
+# MEETING INFO BAR
 # ============================================================================
 with stylable_container(
     key="meeting_bar",
@@ -477,7 +609,7 @@ with stylable_container(
         st_toggle_switch("🔔 Notifications", key="notifications")
 
 # ============================================================================
-# LOAD DATA DENGAN LOADING ANIMATION
+# LOAD DATA
 # ============================================================================
 with st.spinner('🔄 Loading latest data from Google Sheets...'):
     all_df = load_all_data()
@@ -485,13 +617,9 @@ with st.spinner('🔄 Loading latest data from Google Sheets...'):
 # Initialize session state for months if not exists
 if 'adjustment_months' not in st.session_state:
     st.session_state.adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-if 'projection_months' not in st.session_state:
-    st.session_state.projection_months = []
-if 'has_floor_price' not in st.session_state:
-    st.session_state.has_floor_price = 'floor_price' in all_df.columns
 
 # ============================================================================
-# QUICK METRICS OVERVIEW - MODERN
+# QUICK METRICS OVERVIEW
 # ============================================================================
 st.markdown("### 📊 Quick Overview")
 metrics_cols = st.columns(5)
@@ -586,7 +714,7 @@ with metrics_cols[4]:
         style_metric_cards()
 
 # ============================================================================
-# MODERN FILTER BAR
+# FILTER BAR
 # ============================================================================
 with st.container():
     st.markdown("### 🔍 Filter Data")
@@ -657,12 +785,12 @@ with st.container():
                     st.rerun()
 
 # ============================================================================
-# TAB INTERFACE - MODERN
+# TAB INTERFACE
 # ============================================================================
 tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics Dashboard", "🎯 Focus Areas"])
 
 # ============================================================================
-# TAB 1: INPUT TABLE DENGAN DATA EDITOR (STABLE VERSION)
+# TAB 1: INPUT & ADJUSTMENT (WITH EDITABLE TABLE)
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 3-Month Forecast Adjustment")
@@ -685,7 +813,52 @@ with tab1:
         elif month_cover_filter == "> 3 months":
             filtered_df = filtered_df[filtered_df['Month_Cover'] > 3]
     
-    # Prepare display dataframe
+    # Display info
+    st.info(f"📋 Showing **{len(filtered_df)}** SKUs out of **{len(all_df)}** total")
+    
+    # =================================================================
+    # COLOR LEGEND
+    # =================================================================
+    st.markdown("""
+    <div class="color-legend">
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #FCE7F3; border-left: 3px solid #BE185D;"></div>
+            <span class="legend-text">Month Cover > 1.5</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #FFEDD5; border-left: 3px solid #9A3412;"></div>
+            <span class="legend-text">Growth < 90%</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #FEE2E2; border-left: 3px solid #991B1B;"></div>
+            <span class="legend-text">Growth > 130%</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #E0F2FE;"></div>
+            <span class="legend-text">Acneact</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #F0F9FF;"></div>
+            <span class="legend-text">Age Corrector</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #F0FDF4;"></div>
+            <span class="legend-text">Truwhite</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box" style="background-color: #FEF3C7;"></div>
+            <span class="legend-text">ER Hair</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # =================================================================
+    # STEP 1: DISPLAY TABLE DENGAN FROZEN HEADER
+    # =================================================================
+    st.markdown("#### 📋 Forecast Table (Read-only View)")
+    st.markdown("*Scroll to see all data - Headers stay fixed at top*")
+    
+    # Prepare display dataframe dengan semua kolom yang diperlukan
     display_columns = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
     
     # Add sales months if available
@@ -703,212 +876,231 @@ with tab1:
             forecast_cols.append(month)
     display_columns += forecast_cols
     
-    # Add percentage columns
-    for month in forecast_cols:
-        if 'L3M_Avg' in filtered_df.columns:
-            filtered_df[f'{month}_%'] = (filtered_df[month] / filtered_df['L3M_Avg'].replace(0, 1) * 100).round(1)
-            display_columns.append(f'{month}_%')
+    # Create display dataframe
+    display_df = filtered_df[display_columns].copy()
+    
+    # Calculate percentage columns
+    display_df = calculate_percentage_columns(display_df)
+    
+    # Add percentage columns to display
+    for month in st.session_state.adjustment_months:
+        pct_col = f'{month}_%'
+        if pct_col in display_df.columns:
+            display_columns.append(pct_col)
     
     # Add consensus columns
     consensus_cols = []
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
         if cons_col in filtered_df.columns:
+            display_df[cons_col] = filtered_df[cons_col]
             consensus_cols.append(cons_col)
         else:
             # Initialize consensus columns
             if month in filtered_df.columns:
-                filtered_df[cons_col] = filtered_df[month]
+                display_df[cons_col] = filtered_df[month]
                 consensus_cols.append(cons_col)
     
     display_columns += consensus_cols
     
-    # Create display dataframe
-    display_df = filtered_df[display_columns].copy()
+    # Reorder columns untuk display yang lebih baik
+    final_display_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    final_display_cols += sales_cols
+    final_display_cols += calc_cols
+    final_display_cols += forecast_cols
+    
+    # Add percentage columns setelah forecast columns
+    pct_cols_list = []
+    for month in st.session_state.adjustment_months:
+        pct_col = f'{month}_%'
+        if pct_col in display_df.columns:
+            pct_cols_list.append(pct_col)
+    final_display_cols += pct_cols_list
+    
+    # Add consensus columns di akhir
+    final_display_cols += consensus_cols
+    
+    display_df = display_df[final_display_cols]
     
     # Add row numbers
     display_df.insert(0, 'No.', range(1, len(display_df) + 1))
     
-    # Display info
-    st.info(f"📋 Showing **{len(display_df)}** SKUs out of **{len(all_df)}** total")
-    
-    # Color legend
-    st.markdown("""
-    <div style="display: flex; gap: 1rem; margin: 1rem 0; padding: 0.75rem; background: #F9FAFB; border-radius: 8px; align-items: center;">
-        <div style="font-size: 0.85rem; font-weight: 500; color: #6B7280;">Color Legend:</div>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            <div style="background-color: #FCE7F3; color: #BE185D; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
-                Month Cover > 1.5
-            </div>
-            <div style="background-color: #FFEDD5; color: #9A3412; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
-                Growth < 90%
-            </div>
-            <div style="background-color: #FEE2E2; color: #991B1B; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
-                Growth > 130%
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Display the dataframe with conditional formatting
-    st.markdown("#### 📋 Current Forecast (Read-only View)")
-    
-    # Limit rows untuk performance
-    display_limit = 100
-    if len(display_df) > display_limit:
-        st.warning(f"Showing first {display_limit} of {len(display_df)} rows. Use filters to narrow down.")
-        display_sample = display_df.head(display_limit)
-    else:
-        display_sample = display_df
-    
-    # Fungsi untuk apply styling
-    def style_dataframe(df):
-        # Convert to HTML dengan styling
-        html = '<table class="dataframe" style="width:100%; border-collapse: collapse;"><thead><tr>'
-        
-        # Header
-        for col in df.columns:
-            html += f'<th style="background-color: #F3F4F6; padding: 12px; border-bottom: 2px solid #D1D5DB; text-align: left;">{col}</th>'
-        html += '</tr></thead><tbody>'
-        
-        # Rows dengan conditional formatting
-        for idx, row in df.iterrows():
-            html += '<tr>'
-            
-            for col_idx, col_name in enumerate(df.columns):
-                value = row[col_name]
-                cell_style = 'padding: 10px 12px; border-bottom: 1px solid #E5E7EB;'
-                
-                # Apply conditional formatting
-                if col_name == 'Month_Cover' and isinstance(value, (int, float)):
-                    if value > 1.5:
-                        cell_style += 'background-color: #FCE7F3 !important; color: #BE185D !important; font-weight: 600; border-left: 3px solid #BE185D !important;'
-                
-                elif '_%' in col_name and isinstance(value, (int, float)):
-                    if value < 90:
-                        cell_style += 'background-color: #FFEDD5 !important; color: #9A3412 !important; font-weight: 600; border-left: 3px solid #9A3412 !important;'
-                    elif value > 130:
-                        cell_style += 'background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 600; border-left: 3px solid #991B1B !important;'
-                
-                elif col_name == 'Brand' and isinstance(value, str):
-                    brand_lower = value.lower().replace(' ', '-').replace('_', '-')
-                    cell_style += f'background-color: var(--brand-{brand_lower}, #FFFFFF) !important;'
-                
-                html += f'<td style="{cell_style}">{value}</td>'
-            
-            html += '</tr>'
-        
-        html += '</tbody></table>'
-        return html
-    
-    # Display styled table
-    st.markdown(style_dataframe(display_sample), unsafe_allow_html=True)
+    # Display table dengan frozen header
+    html_table = create_html_table_with_frozen_header(display_df)
+    st.markdown(html_table, unsafe_allow_html=True)
     
     # =================================================================
-    # EDITABLE CONSENSUS SECTION
+    # STEP 2: EDITABLE CONSENSUS SECTION
     # =================================================================
     st.markdown("---")
     st.markdown("### ✏️ Edit Consensus Values")
+    st.markdown("*Double-click cells below to edit consensus values*")
     
-    # Create editable dataframe hanya untuk consensus columns
-    editable_cols = ['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    # Prepare dataframe untuk editing consensus saja
+    edit_consensus_df = display_df[['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'L3M_Avg']].copy()
     
-    if 'L3M_Avg' in display_df.columns:
-        editable_cols.append('L3M_Avg')
-    
-    # Add consensus columns
+    # Tambahkan consensus columns
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
         if cons_col in display_df.columns:
-            editable_cols.append(cons_col)
+            edit_consensus_df[cons_col] = display_df[cons_col]
     
-    # Create editable dataframe
-    editable_df = display_df[editable_cols].copy()
+    # Column configuration
+    column_config = {
+        'No.': st.column_config.Column("No.", disabled=True),
+        'sku_code': st.column_config.TextColumn("SKU Code", disabled=True),
+        'Product_Name': st.column_config.TextColumn("Product Name", disabled=True),
+        'Brand': st.column_config.TextColumn("Brand", disabled=True),
+        'SKU_Tier': st.column_config.TextColumn("SKU Tier", disabled=True),
+        'L3M_Avg': st.column_config.NumberColumn("L3M Avg", format="%d", disabled=True),
+    }
     
-    # Column config untuk editor
-    column_config = {}
-    
-    # Read-only columns
-    for col in ['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'L3M_Avg']:
-        if col in editable_df.columns:
-            column_config[col] = st.column_config.Column(
-                col.replace('_', ' '),
-                disabled=True
-            )
-    
-    # Editable consensus columns
+    # Add consensus columns config
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
-        if cons_col in editable_df.columns:
+        if cons_col in edit_consensus_df.columns:
             column_config[cons_col] = st.column_config.NumberColumn(
-                f"Cons {month}",
+                f"Consensus {month}",
                 min_value=0,
                 step=1,
                 format="%d",
-                help=f"Final consensus for {month}"
+                help=f"Edit consensus value for {month}"
             )
     
-    # Display data editor untuk consensus values
-    st.markdown("**Edit the Consensus columns below:**")
-    edited_consensus = st.data_editor(
-        editable_df,
+    # Display data editor
+    edited_df = st.data_editor(
+        edit_consensus_df,
         column_config=column_config,
         use_container_width=True,
         height=400,
-        key="consensus_editor",
+        key="consensus_editor_final",
         num_rows="fixed"
     )
     
-    # Save button section
+    # =================================================================
+    # STEP 3: SAVE & ACTIONS
+    # =================================================================
     st.markdown("---")
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("💾 Save Consensus", type="primary", use_container_width=True, key="save_consensus"):
-            with st.spinner("Saving consensus values..."):
-                # Store in session state
-                st.session_state.consensus_data = edited_consensus.copy()
-                
-                # Calculate changes
-                changes_summary = []
-                for month in st.session_state.adjustment_months:
-                    cons_col = f'Cons_{month}'
-                    if cons_col in edited_consensus.columns:
-                        original_val = display_df[cons_col].sum()
-                        new_val = edited_consensus[cons_col].sum()
-                        change = new_val - original_val
-                        change_pct = (change / original_val * 100) if original_val != 0 else 0
-                        changes_summary.append({
-                            'month': month,
-                            'original': original_val,
-                            'new': new_val,
-                            'change': change,
-                            'change_pct': change_pct
-                        })
-                
-                st.session_state.changes_summary = changes_summary
-                st.success("✅ Consensus values saved!")
-                
-                # Show changes
-                st.info("**Summary of Changes:**")
-                for change in changes_summary:
-                    st.write(f"- **{change['month']}:** {change['change']:+,.0f} units ({change['change_pct']:+.1f}%)")
+        if st.button("💾 Save Consensus Values", type="primary", use_container_width=True):
+            # Simpan ke session state
+            st.session_state.edited_consensus = edited_df.copy()
+            
+            # Hitung perubahan
+            changes = []
+            for month in st.session_state.adjustment_months:
+                cons_col = f'Cons_{month}'
+                if cons_col in edited_df.columns:
+                    original_total = display_df[cons_col].sum()
+                    new_total = edited_df[cons_col].sum()
+                    change = new_total - original_total
+                    change_pct = (change / original_total * 100) if original_total > 0 else 0
+                    
+                    changes.append({
+                        'Month': month,
+                        'Original': f"{original_total:,.0f}",
+                        'New': f"{new_total:,.0f}",
+                        'Change': f"{change:+,.0f}",
+                        'Change %': f"{change_pct:+.1f}%"
+                    })
+            
+            st.session_state.consensus_changes = changes
+            st.success("✅ Consensus values saved!")
+            
+            # Tampilkan summary
+            if changes:
+                with st.expander("📊 View Changes Summary", expanded=True):
+                    changes_df = pd.DataFrame(changes)
+                    st.dataframe(changes_df, use_container_width=True, hide_index=True)
+                    
+                    # Total changes
+                    total_change = sum([c['Change'] for c in changes])
+                    st.metric("Total Change", f"{total_change:+,.0f} units")
     
     with col2:
-        if st.button("📊 Preview Changes", use_container_width=True, key="preview_changes"):
-            if 'consensus_data' in st.session_state:
-                st.info("**Latest Consensus Values:**")
-                st.dataframe(st.session_state.consensus_data, use_container_width=True)
+        if st.button("📊 Compare with Original", use_container_width=True):
+            if 'consensus_changes' in st.session_state:
+                changes_df = pd.DataFrame(st.session_state.consensus_changes)
+                
+                # Create comparison chart
+                fig = px.bar(
+                    changes_df,
+                    x='Month',
+                    y='Change',
+                    title="Changes vs Original Forecast",
+                    color='Change',
+                    color_continuous_scale='RdYlGn',
+                    text='Change'
+                )
+                
+                fig.update_layout(
+                    height=300,
+                    showlegend=False,
+                    yaxis_title="Change (units)"
+                )
+                
+                fig.update_traces(texttemplate='%{text:+,}', textposition='outside')
+                
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("No consensus data saved yet.")
+                st.warning("No changes saved yet. Save consensus values first.")
     
     with col3:
-        if st.button("🔄 Reset All", use_container_width=True, key="reset_consensus"):
-            if 'consensus_data' in st.session_state:
-                del st.session_state.consensus_data
-            if 'changes_summary' in st.session_state:
-                del st.session_state.changes_summary
+        if st.button("🔄 Reset to Original", type="secondary", use_container_width=True):
+            if 'edited_consensus' in st.session_state:
+                del st.session_state.edited_consensus
+            if 'consensus_changes' in st.session_state:
+                del st.session_state.consensus_changes
             st.rerun()
+    
+    # =================================================================
+    # STEP 4: DOWNLOAD OPTIONS
+    # =================================================================
+    st.markdown("---")
+    st.markdown("### 📤 Export Options")
+    
+    col_d1, col_d2, col_d3 = st.columns(3)
+    
+    with col_d1:
+        if st.button("⬇️ Download Current View", use_container_width=True):
+            csv = display_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"forecast_view_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+    
+    with col_d2:
+        if st.button("⬇️ Download Consensus Only", use_container_width=True):
+            if 'edited_consensus' in st.session_state:
+                csv = st.session_state.edited_consensus.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv,
+                    file_name=f"consensus_values_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                csv = edited_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv,
+                    file_name=f"consensus_values_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+    
+    with col_d3:
+        if st.button("⬇️ Download Full Data", use_container_width=True):
+            csv = all_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"full_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
 
 # ============================================================================
 # TAB 2: ANALYTICS DASHBOARD
@@ -916,13 +1108,13 @@ with tab1:
 with tab2:
     st.markdown("### 📈 Consensus Results & Projections")
     
-    # Use edited consensus data if available
+    # Gunakan edited consensus data jika ada
     results_df = all_df.copy()
     
-    if 'consensus_data' in st.session_state:
-        consensus_df = st.session_state.consensus_data.copy()
+    if 'edited_consensus' in st.session_state:
+        consensus_df = st.session_state.edited_consensus.copy()
         
-        # Map consensus values back to full dataset
+        # Map consensus values back ke full dataset
         for month in st.session_state.adjustment_months:
             cons_col = f'Cons_{month}'
             if cons_col in consensus_df.columns:
@@ -971,22 +1163,22 @@ with tab2:
                 st.metric(f"Total {month}", "N/A")
     
     # Show changes summary jika ada
-    if 'changes_summary' in st.session_state:
+    if 'consensus_changes' in st.session_state:
         st.markdown("---")
         st.markdown("#### 📝 Consensus Changes Summary")
         
-        changes_df = pd.DataFrame(st.session_state.changes_summary)
+        changes_df = pd.DataFrame(st.session_state.consensus_changes)
         
         # Format untuk display
         display_changes = changes_df.copy()
-        display_changes['Original'] = display_changes['original'].apply(lambda x: f"{x:,.0f}")
-        display_changes['New'] = display_changes['new'].apply(lambda x: f"{x:,.0f}")
-        display_changes['Change'] = display_changes['change'].apply(lambda x: f"{x:+,.0f}")
-        display_changes['Change %'] = display_changes['change_pct'].apply(lambda x: f"{x:+.1f}%")
+        display_changes['Original'] = display_changes['Original']
+        display_changes['New'] = display_changes['New']
+        display_changes['Change'] = display_changes['Change']
+        display_changes['Change %'] = display_changes['Change %']
         
         # Display
-        st.dataframe(display_changes[['month', 'Original', 'New', 'Change', 'Change %']].rename(
-            columns={'month': 'Month'}
+        st.dataframe(display_changes[['Month', 'Original', 'New', 'Change', 'Change %']].rename(
+            columns={'Month': 'Month'}
         ), use_container_width=True, hide_index=True)
     
     # =================================================================
@@ -998,8 +1190,8 @@ with tab2:
     # Prepare monthly summary data
     summary_data = []
     
-    # Include semua bulan: adjustment + projection
-    all_display_months = [f'Cons_{m}' for m in st.session_state.adjustment_months] + st.session_state.projection_months
+    # Include semua bulan: adjustment
+    all_display_months = [f'Cons_{m}' for m in st.session_state.adjustment_months]
     all_display_months = [m for m in all_display_months if m in results_df.columns]
     
     for month in all_display_months:
@@ -1051,201 +1243,9 @@ with tab2:
                 
                 avg_month_cover_all = results_df['Month_Cover'].mean()
                 st.metric("Overall Avg Month Cover", f"{avg_month_cover_all:.1f}")
-            
-            if st.session_state.has_floor_price and 'floor_price' in results_df.columns:
-                # Hitung total value dari 3 bulan adjustment
-                adjustment_value = 0
-                for month in st.session_state.adjustment_months:
-                    cons_col = f'Cons_{month}'
-                    if cons_col in results_df.columns:
-                        month_value = (results_df[cons_col] * results_df['floor_price']).sum()
-                        adjustment_value += month_value
-                
-                st.metric("Total 3-Month Value", f"Rp {adjustment_value:,.0f}")
-    
-    # =================================================================
-    # VISUAL ANALYTICS
-    # =================================================================
-    st.markdown("---")
-    st.markdown("### 📊 Visual Analytics")
-    
-    # Chart 1: Monthly Volume Trend
-    if 'summary_data' in locals() and summary_data:
-        chart_col1, chart_col2 = st.columns(2)
-        
-        with chart_col1:
-            st.markdown("#### 📈 Monthly Volume Trend")
-            
-            # Buat DataFrame untuk chart
-            chart_data = []
-            
-            for row in summary_data:
-                month_name = row['Month']
-                total_volume = row['Total Volume']
-                
-                # Determine type
-                if month_name in [m.replace('Cons_', '') for m in st.session_state.adjustment_months]:
-                    chart_type = 'Adjusted'
-                elif month_name in st.session_state.projection_months:
-                    chart_type = 'Projected'
-                else:
-                    chart_type = 'Other'
-                
-                chart_data.append({
-                    'Month': month_name,
-                    'Volume': total_volume,
-                    'Type': chart_type
-                })
-            
-            chart_df = pd.DataFrame(chart_data)
-            
-            if not chart_df.empty:
-                fig = px.line(
-                    chart_df,
-                    x='Month',
-                    y='Volume',
-                    color='Type',
-                    markers=True,
-                    line_shape='spline',
-                    title="Monthly Forecast Volume Trend",
-                    template='plotly_white'
-                )
-                
-                fig.update_layout(
-                    height=400,
-                    hovermode='x unified',
-                    plot_bgcolor='white',
-                    yaxis=dict(
-                        title="Volume (units)", 
-                        gridcolor='#E5E7EB',
-                        tickformat=',.0f'
-                    ),
-                    xaxis=dict(
-                        title="Month", 
-                        tickangle=45, 
-                        gridcolor='#E5E7EB',
-                        type='category'
-                    )
-                )
-                
-                # Format hover
-                fig.update_traces(
-                    hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<br>Type: %{data.name}'
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No chart data available")
-        
-        with chart_col2:
-            st.markdown("#### 📊 Brand Contribution")
-            
-            # Calculate brand totals untuk adjusted months
-            if 'Brand' in results_df.columns:
-                brand_data = []
-                for brand in results_df['Brand'].dropna().unique():
-                    brand_qty = 0
-                    for month in st.session_state.adjustment_months:
-                        cons_col = f'Cons_{month}'
-                        if cons_col in results_df.columns:
-                            brand_mask = results_df['Brand'] == brand
-                            brand_qty += results_df.loc[brand_mask, cons_col].sum()
-                    
-                    if brand_qty > 0:  # Hanya tampilkan brand dengan volume > 0
-                        brand_data.append({
-                            'Brand': brand,
-                            'Total Volume': brand_qty
-                        })
-                
-                if brand_data:
-                    brand_df = pd.DataFrame(brand_data)
-                    brand_df = brand_df.sort_values('Total Volume', ascending=True)
-                    
-                    # Limit to top 10 jika terlalu banyak
-                    if len(brand_df) > 10:
-                        brand_df = brand_df.tail(10)
-                    
-                    fig = px.bar(
-                        brand_df,
-                        y='Brand',
-                        x='Total Volume',
-                        orientation='h',
-                        title="Brand Contribution to Adjusted Forecast",
-                        color='Total Volume',
-                        color_continuous_scale='Viridis'
-                    )
-                    
-                    fig.update_layout(
-                        height=400,
-                        showlegend=False,
-                        plot_bgcolor='white',
-                        xaxis=dict(
-                            title="Total Volume (units)", 
-                            gridcolor='#E5E7EB',
-                            tickformat=',.0f'
-                        )
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No brand contribution data available")
-            else:
-                st.info("Brand column not found in data")
-    
-    # =================================================================
-    # DETAILED DATA TABLE
-    # =================================================================
-    st.markdown("---")
-    st.markdown("#### 📋 Detailed Consensus Data")
-    
-    # Prepare detailed view
-    detailed_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
-    
-    if 'L3M_Avg' in results_df.columns:
-        detailed_cols.append('L3M_Avg')
-    if 'Month_Cover' in results_df.columns:
-        detailed_cols.append('Month_Cover')
-    
-    # Add consensus columns
-    for month in st.session_state.adjustment_months:
-        cons_col = f'Cons_{month}'
-        if cons_col in results_df.columns:
-            detailed_cols.append(cons_col)
-    
-    # Add growth % columns
-    for month in st.session_state.adjustment_months:
-        cons_col = f'Cons_{month}'
-        if cons_col in results_df.columns and 'L3M_Avg' in results_df.columns:
-            growth_col = f'Cons_{month}_Growth'
-            results_df[growth_col] = (results_df[cons_col] / results_df['L3M_Avg'].replace(0, 1) * 100).round(1)
-            detailed_cols.append(growth_col)
-    
-    if detailed_cols:
-        detailed_df = results_df[detailed_cols].copy()
-        
-        # Add row numbers
-        detailed_df.insert(0, 'No.', range(1, len(detailed_df) + 1))
-        
-        # Limit display
-        if len(detailed_df) > 50:
-            st.info(f"Showing first 50 of {len(detailed_df)} SKUs. Use filters in Tab 1 for specific views.")
-            st.dataframe(detailed_df.head(50), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(detailed_df, use_container_width=True, hide_index=True)
-        
-        # Export button
-        if st.button("📥 Export Full Consensus Data", key="export_tab2"):
-            csv = detailed_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="⬇️ Download CSV",
-                data=csv,
-                file_name=f"full_consensus_data_{meeting_date}.csv",
-                mime="text/csv",
-                key="download_tab2"
-            )
 
 # ============================================================================
-# TAB 3: FOCUS AREAS & ALERTS
+# TAB 3: FOCUS AREAS
 # ============================================================================
 with tab3:
     st.markdown("### 🎯 Focus Areas & Action Items")
@@ -1264,7 +1264,7 @@ with tab3:
         }
     
     if 'L3M_Avg' in all_df.columns and 'Feb-26' in all_df.columns:
-        low_growth_mask = (all_df['Feb-26'] / all_df['L3M_Avg'].replace(0, 1) * 100) < 90
+        low_growth_mask = (all_df['Feb-26'] / all_df['L3M_Avg'].replace(0, np.nan) * 100) < 90
         low_growth_skus = all_df[low_growth_mask].sort_values('L3M_Avg')
         alerts_data['low_growth'] = {
             'count': len(low_growth_skus),
@@ -1274,7 +1274,7 @@ with tab3:
             'color': '#F59E0B'
         }
         
-        high_growth_mask = (all_df['Feb-26'] / all_df['L3M_Avg'].replace(0, 1) * 100) > 130
+        high_growth_mask = (all_df['Feb-26'] / all_df['L3M_Avg'].replace(0, np.nan) * 100) > 130
         high_growth_skus = all_df[high_growth_mask].sort_values('Feb-26', ascending=False)
         alerts_data['high_growth'] = {
             'count': len(high_growth_skus),
@@ -1367,51 +1367,10 @@ with tab3:
                                     
                                     st.dataframe(alert['data'][display_cols].head(10))
     else:
-        st.info("No alert data available. Check if required columns exist in your data.")
+        st.info("No alert data available.")
 
 # ============================================================================
-# SIDEBAR CONFIGURATION
-# ============================================================================
-with st.sidebar:
-    st.markdown("### ⚙️ Dashboard Settings")
-    
-    # Auto-refresh toggle
-    auto_refresh = st.checkbox("🔄 Auto-refresh data", value=False)
-    if auto_refresh:
-        refresh_interval = st.slider("Refresh interval (minutes)", 1, 30, 5)
-    
-    # Theme selector
-    theme = st.selectbox("🎨 Theme", ["Light", "Dark", "Auto"])
-    
-    # Data range
-    st.markdown("---")
-    st.markdown("### 📅 Data Range")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input("From", value=datetime(2025, 10, 1).date())
-    with col2:
-        end_date = st.date_input("To", value=datetime(2026, 4, 30).date())
-    
-    # Export options
-    st.markdown("---")
-    st.markdown("### 📤 Export Data")
-    
-    export_format = st.radio("Format", ["CSV", "Excel", "PDF"])
-    
-    if st.button("📥 Generate Export", use_container_width=True):
-        st.success(f"Exporting data as {export_format}...")
-    
-    # Debug info
-    st.markdown("---")
-    with st.expander("🔧 Debug Info"):
-        st.write(f"Data shape: {all_df.shape}")
-        st.write(f"Columns: {list(all_df.columns)}")
-        st.write(f"Adjustment months: {st.session_state.adjustment_months}")
-        st.write(f"Has floor price: {st.session_state.has_floor_price}")
-
-# ============================================================================
-# MODERN FOOTER
+# FOOTER
 # ============================================================================
 st.markdown("---")
 footer_cols = st.columns([2, 1, 1])
@@ -1439,48 +1398,3 @@ with footer_cols[2]:
         <p>{datetime.now().strftime('%H:%M:%S')}</p>
     </div>
     """, unsafe_allow_html=True)
-
-# ============================================================================
-# DEPLOYMENT INSTRUCTIONS
-# ============================================================================
-with st.expander("🚀 Deployment Instructions", expanded=False):
-    st.markdown("""
-    ### **Deploy to Streamlit Cloud**
-    
-    1. **Push to GitHub:**
-    ```bash
-    git add .
-    git commit -m "Add modern S&OP dashboard"
-    git push origin main
-    ```
-    
-    2. **Go to [share.streamlit.io](https://share.streamlit.io)**
-    3. **Click "New app"** → Select repository
-    4. **Set main file to:** `app.py`
-    5. **Add secrets:** (in Streamlit Cloud dashboard)
-    ```toml
-    [gsheets]
-    sheet_id = "your-sheet-id"
-    service_account_info = '{"type": "service_account", ...}'
-    ```
-    
-    ### **Requirements File**
-    Create `requirements.txt`:
-    ```txt
-    streamlit>=1.28.0
-    pandas>=2.0.0
-    numpy>=1.24.0
-    plotly>=5.17.0
-    gspread>=5.11.0
-    google-auth>=2.23.0
-    streamlit-aggrid>=0.3.4
-    streamlit-extras>=0.4.0
-    streamlit-autorefresh>=0.1.4
-    ```
-    
-    ### **Alternative Hosting:**
-    - **Hugging Face Spaces:** Free, public only
-    - **Render:** Free tier available
-    - **Railway:** $5/month starter
-    - **AWS EC2:** ~$10/month
-    """)
