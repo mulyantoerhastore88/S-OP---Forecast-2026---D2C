@@ -17,7 +17,7 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V5.3",
+    page_title="ERHA S&OP Dashboard V5.4",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -97,12 +97,10 @@ class GSheetConnector:
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
-
 def clean_currency(val):
     if pd.isna(val) or val == '': return 0
     val_str = str(val)
-    # Hapus Rp, spasi, koma, titik (jika titik dipakai sebagai ribuan di format Indo, hapus juga)
-    # Regex ini menghapus semua yg bukan angka
+    # Hapus Rp, spasi, koma
     clean_str = re.sub(r'[^0-9]', '', val_str)
     try:
         return float(clean_str)
@@ -256,14 +254,14 @@ with st.sidebar:
     with st.expander("🕵️ Debugger"):
         if 'missing_months' in st.session_state and st.session_state.missing_months:
             st.error(f"Missing: {st.session_state.missing_months}")
-        else: st.success("All Columns Found")
+        else: st.success("All 12-Month Columns Found/Mapped!")
 
 # ============================================================================
 # MAIN
 # ============================================================================
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V5.3 (Final Fix)</h2>
+    <h2>📊 ERHA S&OP Dashboard V5.4</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
@@ -306,15 +304,21 @@ with tab1:
     edit_df = filtered_df.copy()
     edit_df = calculate_pct(edit_df, cycle_months)
     
-    # === FIX: ADD floor_price TO COLUMNS ===
     ag_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus', 'floor_price']
     
     hist_cols = [c for c in edit_df.columns if '-' in c and c not in st.session_state.horizon_months and 'Cons' not in c and '%' not in c][-3:]
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
-    ag_cols.extend(cycle_months)
+    
+    # === FIX: MASUKKAN SEMUA HORIZON MONTHS KE AG-GRID ===
+    # Tapi sembunyikan M4-M12 agar tidak penuh
+    ag_cols.extend(st.session_state.horizon_months) 
+    
     ag_cols.extend([f'{m}_%' for m in cycle_months])
     ag_cols.extend([f'Cons_{m}' for m in cycle_months])
+    
+    # Remove duplicates preserving order
+    ag_cols = list(dict.fromkeys(ag_cols))
     ag_cols = [c for c in ag_cols if c in edit_df.columns]
     
     ag_df = edit_df[ag_cols].copy()
@@ -336,9 +340,15 @@ with tab1:
     gb.configure_column("Product_Name", pinned="left", minWidth=200, flex=1)
     gb.configure_column("Channel", pinned="left", width=110, cellStyle=js_channel)
     gb.configure_column("Product_Focus", hide=True)
-    gb.configure_column("floor_price", hide=True) # Hide floor_price from user
+    gb.configure_column("floor_price", hide=True) 
     gb.configure_column("Brand", cellStyle=js_brand, width=120)
     gb.configure_column("Month_Cover", cellStyle=js_cover, width=100)
+    
+    # Hide M4-M12 Columns (Future ROFO)
+    # They are there for data transfer, but hidden from view
+    for m in st.session_state.horizon_months:
+        if m not in cycle_months: # Jika bukan M1-M3, sembunyikan
+            gb.configure_column(m, hide=True)
     
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus', 'floor_price'] and '%' not in c:
@@ -390,9 +400,7 @@ with tab2:
     horizon = st.session_state.horizon_months
     calc_df = base_df.copy()
     
-    # SAFETY: Ensure floor_price exists
-    if 'floor_price' not in calc_df.columns:
-        calc_df['floor_price'] = 0
+    if 'floor_price' not in calc_df.columns: calc_df['floor_price'] = 0
         
     total_qty_cols = []
     total_val_cols = []
@@ -401,9 +409,11 @@ with tab2:
         qty_col = f'Final_Qty_{m}'
         val_col = f'Final_Val_{m}'
         
+        # Hybrid Source
         if m in cycle_months: source_col = f'Cons_{m}'
         else: source_col = m
             
+        # Pastikan kolom ada (terbawa dari Tab 1 hidden cols)
         if source_col in calc_df.columns:
             calc_df[qty_col] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
         else:
@@ -448,8 +458,18 @@ with tab2:
     
     with st.expander("🔎 View Breakdown by Brand (12 Months)", expanded=True):
         brand_summ = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
+        # Rename for easier display
         rename_map = {old: old.replace('Final_Val_', '') for old in total_val_cols}
         brand_summ.rename(columns=rename_map, inplace=True)
         brand_summ['Total Year'] = brand_summ.iloc[:, 1:].sum(axis=1)
         brand_summ = brand_summ.sort_values('Total Year', ascending=False)
-        st.dataframe(brand_summ, hide_index=True, use_container_width=True, column_config={c: st.column_config.NumberColumn(format="Rp %.0f") for c in brand_summ.columns if c != 'Brand'})
+        
+        # --- FIX: FORMAT CURRENCY IN TABLE WITH COMMAS ---
+        # Convert numeric to string with Rp and commas
+        formatted_df = brand_summ.copy()
+        for col in formatted_df.columns:
+            if col != 'Brand':
+                # Apply format: Rp 1,000,000
+                formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}")
+
+        st.dataframe(formatted_df, hide_index=True, use_container_width=True)
