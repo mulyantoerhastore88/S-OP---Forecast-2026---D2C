@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# CSS STYLING
+# CSS STYLING - PERBAIKAN RESPONSIF
 # ============================================================================
 st.markdown("""
 <style>
@@ -40,11 +40,47 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 1.4rem; }
     
     .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        padding-left: 2rem;
-        padding-right: 2rem;
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
         max-width: 100%;
+    }
+    
+    /* Responsive grid container */
+    .ag-theme-alpine {
+        --ag-font-size: 12px !important;
+    }
+    
+    /* Make ag-grid more responsive */
+    .ag-root-wrapper {
+        min-height: 500px !important;
+        height: calc(100vh - 300px) !important;
+    }
+    
+    /* Responsive columns */
+    @media screen and (max-width: 1200px) {
+        .ag-header-cell-text {
+            font-size: 11px !important;
+        }
+        .ag-cell {
+            font-size: 11px !important;
+        }
+    }
+    
+    @media screen and (max-width: 768px) {
+        .main-header h2 {
+            font-size: 1.5rem !important;
+        }
+        .main-header p {
+            font-size: 0.9rem !important;
+        }
+    }
+    
+    /* Smooth scrolling for ag-grid */
+    .ag-body-viewport {
+        overflow-y: auto !important;
+        overflow-x: auto !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -262,9 +298,7 @@ if all_df.empty:
     st.warning("No data found.")
     st.stop()
 
-# PERBAIKAN DI SINI: Simpan horizon_months di session state jika belum ada
 if 'horizon_months' not in st.session_state:
-    # Jika belum di-set oleh load_data_v5, hitung ulang
     start_date = datetime.strptime(selected_start_str, "%b-%y")
     horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
     st.session_state.horizon_months = horizon_months
@@ -302,87 +336,287 @@ if sel_cover == "Over (>1.5)":
 tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics"])
 
 # ============================================================================
-# TAB 1: WORKSHEET
+# TAB 1: WORKSHEET - DIUBAH AGAR LEBIH FLEKSIBEL
 # ============================================================================
 with tab1:
     edit_df = filtered_df.copy()
     edit_df = calculate_pct(edit_df, cycle_months)
     
+    # Kolom yang akan ditampilkan
     ag_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus', 'floor_price']
     
-    # PERBAIKAN: Gunakan horizon_months dari session state dengan check
     if 'horizon_months' in st.session_state:
         horizon_months = st.session_state.horizon_months
     else:
-        # Fallback: hitung ulang
         start_date = datetime.strptime(selected_start_str, "%b-%y")
         horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
     
-    hist_cols = [c for c in edit_df.columns if '-' in c and c not in horizon_months and 'Cons' not in c and '%' not in c][-3:]
+    # History columns (last 3 months)
+    hist_cols = [c for c in edit_df.columns if '-' in c and c not in horizon_months and 'Cons' not in c and '%' not in c]
+    if len(hist_cols) >= 3:
+        hist_cols = hist_cols[-3:]
+    
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
     
-    ag_cols.extend(horizon_months) 
+    # Tambahkan bulan-bulan horizon
+    ag_cols.extend(horizon_months)
     
+    # Tambahkan persentase dan consensus columns
     ag_cols.extend([f'{m}_%' for m in cycle_months])
     ag_cols.extend([f'Cons_{m}' for m in cycle_months])
     
+    # Hapus duplikat dan pastikan kolom ada di DataFrame
     ag_cols = list(dict.fromkeys(ag_cols))
     ag_cols = [c for c in ag_cols if c in edit_df.columns]
     
     ag_df = edit_df[ag_cols].copy()
 
-    js_sku_focus = JsCode("function(p) { if(p.data.Product_Focus === 'Yes') return {'backgroundColor': '#CCFBF1', 'color': '#0F766E', 'fontWeight': 'bold', 'borderLeft': '4px solid #14B8A6'}; return null; }")
-    js_brand = JsCode("function(p) { if(!p.value) return null; const b=p.value.toLowerCase(); if(b.includes('acne')) return {'backgroundColor':'#E0F2FE','color':'#0284C7','fontWeight':'bold'}; if(b.includes('tru')) return {'backgroundColor':'#DCFCE7','color':'#16A34A','fontWeight':'bold'}; if(b.includes('hair')) return {'backgroundColor':'#FEF3C7','color':'#D97706','fontWeight':'bold'}; if(b.includes('age')) return {'backgroundColor':'#E0E7FF','color':'#4F46E5','fontWeight':'bold'}; if(b.includes('his')) return {'backgroundColor':'#F3E8FF','color':'#7C3AED','fontWeight':'bold'}; return {'backgroundColor':'#F3F4F6'}; }")
-    js_channel = JsCode("function(p) { if(!p.value) return null; if(p.value==='E-commerce') return {'color':'#EA580C','fontWeight':'bold'}; if(p.value==='Reseller') return {'color':'#059669','fontWeight':'bold'}; return null; }")
-    js_cover = JsCode("function(p) { if(p.value > 1.5) return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'}; return null; }")
-    js_pct = JsCode("function(p) { if(p.value < 90) return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'}; if(p.value > 130) return {'backgroundColor': '#FEE2E2', 'color': '#991B1B', 'fontWeight': 'bold'}; return {'color': '#374151'}; }")
-    js_edit = JsCode("function(p) { return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'fontWeight': 'bold', 'color': '#1E40AF'}; }")
+    # JavaScript untuk styling
+    js_sku_focus = JsCode("""
+        function(p) { 
+            if(p.data.Product_Focus === 'Yes') 
+                return {'backgroundColor': '#CCFBF1', 'color': '#0F766E', 'fontWeight': 'bold', 'borderLeft': '4px solid #14B8A6'}; 
+            return null; 
+        }
+    """)
+    
+    js_brand = JsCode("""
+        function(p) { 
+            if(!p.value) return null; 
+            const b = p.value.toLowerCase(); 
+            if(b.includes('acne')) return {'backgroundColor':'#E0F2FE','color':'#0284C7','fontWeight':'bold'}; 
+            if(b.includes('tru')) return {'backgroundColor':'#DCFCE7','color':'#16A34A','fontWeight':'bold'}; 
+            if(b.includes('hair')) return {'backgroundColor':'#FEF3C7','color':'#D97706','fontWeight':'bold'}; 
+            if(b.includes('age')) return {'backgroundColor':'#E0E7FF','color':'#4F46E5','fontWeight':'bold'}; 
+            if(b.includes('his')) return {'backgroundColor':'#F3E8FF','color':'#7C3AED','fontWeight':'bold'}; 
+            return {'backgroundColor':'#F3F4F6'}; 
+        }
+    """)
+    
+    js_channel = JsCode("""
+        function(p) { 
+            if(!p.value) return null; 
+            if(p.value==='E-commerce') return {'color':'#EA580C','fontWeight':'bold'}; 
+            if(p.value==='Reseller') return {'color':'#059669','fontWeight':'bold'}; 
+            return null; 
+        }
+    """)
+    
+    js_cover = JsCode("""
+        function(p) { 
+            if(p.value > 1.5) 
+                return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'}; 
+            return null; 
+        }
+    """)
+    
+    js_pct = JsCode("""
+        function(p) { 
+            if(p.value < 90) 
+                return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'}; 
+            if(p.value > 130) 
+                return {'backgroundColor': '#FEE2E2', 'color': '#991B1B', 'fontWeight': 'bold'}; 
+            return {'color': '#374151'}; 
+        }
+    """)
+    
+    js_edit = JsCode("""
+        function(p) { 
+            return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'fontWeight': 'bold', 'color': '#1E40AF'}; 
+        }
+    """)
 
+    # Grid Options - KONFIGURASI RESPONSIF
     gb = GridOptionsBuilder.from_dataframe(ag_df)
-    gb.configure_grid_options(rowHeight=35, headerHeight=40)
-    gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False, minWidth=95)
     
-    gb.configure_column("sku_code", pinned="left", width=100, cellStyle=js_sku_focus)
-    gb.configure_column("Product_Name", pinned="left", minWidth=200, flex=1)
-    gb.configure_column("Channel", pinned="left", width=110, cellStyle=js_channel)
+    # PERBAIKAN: Grid options untuk responsif
+    gb.configure_grid_options(
+        rowHeight=35,
+        headerHeight=40,
+        suppressHorizontalScroll=False,  # Izinkan scroll horizontal
+        domLayout='normal',  # 'normal' untuk fleksibilitas tinggi
+        enableRangeSelection=True,
+        suppressRowClickSelection=False,
+        rowSelection='single',
+        animateRows=True
+    )
+    
+    # Konfigurasi default yang fleksibel
+    gb.configure_default_column(
+        resizable=True,
+        filterable=True,
+        sortable=True,
+        editable=False,
+        minWidth=80,  # Lebih kecil untuk mobile
+        maxWidth=200,  # Batas maksimal
+        flex=1,  # Kolom dapat flex
+        suppressSizeToFit=False  # Izinkan size to fit
+    )
+    
+    # Kolom tetap di kiri
+    gb.configure_column("sku_code", 
+                       pinned="left", 
+                       width=90,  # Lebih kecil
+                       maxWidth=120,
+                       cellStyle=js_sku_focus,
+                       suppressSizeToFit=True)
+    
+    gb.configure_column("Product_Name", 
+                       pinned="left", 
+                       minWidth=150,
+                       maxWidth=300,
+                       flex=2,  # Lebih fleksibel
+                       cellStyle=js_brand,
+                       suppressSizeToFit=False)
+    
+    gb.configure_column("Channel", 
+                       pinned="left", 
+                       width=100,
+                       maxWidth=120,
+                       cellStyle=js_channel,
+                       suppressSizeToFit=True)
+    
+    # Kolom tersembunyi
     gb.configure_column("Product_Focus", hide=True)
-    gb.configure_column("floor_price", hide=True) 
-    gb.configure_column("Brand", cellStyle=js_brand, width=120)
-    gb.configure_column("Month_Cover", cellStyle=js_cover, width=100)
+    gb.configure_column("floor_price", hide=True)
     
-    # PERBAIKAN: Gunakan variable horizon_months yang sudah didefinisikan
+    # Kolom lainnya
+    gb.configure_column("Brand", 
+                       cellStyle=js_brand, 
+                       width=100,
+                       maxWidth=150,
+                       flex=1,
+                       suppressSizeToFit=False)
+    
+    gb.configure_column("Month_Cover", 
+                       cellStyle=js_cover, 
+                       width=90,
+                       maxWidth=110,
+                       type=["numericColumn"],
+                       valueFormatter="x.toFixed(1)",
+                       suppressSizeToFit=True)
+    
+    # Sembunyikan kolom bulan yang tidak dalam cycle
     for m in horizon_months:
         if m not in cycle_months: 
             gb.configure_column(m, hide=True)
     
+    # Konfigurasi kolom numerik
+    numeric_columns = []
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus', 'floor_price'] and '%' not in c:
-            gb.configure_column(c, type=["numericColumn"], valueFormatter="x.toLocaleString()", minWidth=105)
-            
+            numeric_columns.append(c)
+            gb.configure_column(c, 
+                               type=["numericColumn"], 
+                               valueFormatter="x.toLocaleString()",
+                               minWidth=85,
+                               maxWidth=120,
+                               flex=1,
+                               suppressSizeToFit=False)
+    
+    # Kolom persentase
     for m in cycle_months:
         if f'{m}_%' in ag_cols: 
-            gb.configure_column(f'{m}_%', header_name=f"{m} %", type=["numericColumn"], valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
+            gb.configure_column(f'{m}_%', 
+                               header_name=f"{m} %", 
+                               type=["numericColumn"], 
+                               valueFormatter="x.toFixed(1) + '%'", 
+                               cellStyle=js_pct, 
+                               minWidth=80,
+                               maxWidth=100,
+                               suppressSizeToFit=True)
+        
         if f'Cons_{m}' in ag_cols: 
-            gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, cellStyle=js_edit, width=115, pinned="right", type=["numericColumn"], valueFormatter="x.toLocaleString()")
-
-    gb.configure_selection('single')
+            gb.configure_column(f'Cons_{m}', 
+                               header_name=f"✏️ {m}", 
+                               editable=True, 
+                               cellStyle=js_edit, 
+                               width=100,
+                               maxWidth=120,
+                               pinned="right", 
+                               type=["numericColumn"], 
+                               valueFormatter="x.toLocaleString()",
+                               suppressSizeToFit=True)
     
-    grid_res = AgGrid(ag_df, gridOptions=gb.build(), allow_unsafe_jscode=True, update_mode=GridUpdateMode.VALUE_CHANGED, height=600, theme='alpine', key='v5_worksheet', use_container_width=True)
+    # Tambahkan seleksi
+    gb.configure_selection('single', use_checkbox=False)
+    
+    # PERBAIKAN: Grid yang lebih responsif
+    grid_options = gb.build()
+    
+    # Tambahkan autoSize untuk kolom-kolom tertentu
+    grid_options['defaultColDef']['autoSizePadding'] = 10
+    
+    # Konteks responsif untuk mobile
+    st.markdown("""
+    <style>
+        @media screen and (max-width: 768px) {
+            .ag-theme-alpine {
+                font-size: 11px !important;
+            }
+            .ag-header-cell-label {
+                padding: 4px !important;
+            }
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Tampilkan grid dengan konfigurasi responsif
+    st.markdown("**Tips:** Gunakan scroll horizontal untuk melihat semua kolom. Tabel akan menyesuaikan dengan ukuran layar.")
+    
+    # Container untuk grid dengan CSS responsif
+    with stylable_container(
+        key="responsive_grid",
+        css_styles="""
+            {
+                height: 70vh !important;
+                min-height: 500px;
+                overflow: auto;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                padding: 5px;
+                background-color: white;
+            }
+            @media screen and (max-width: 768px) {
+                div {
+                    height: 60vh !important;
+                }
+            }
+        """
+    ):
+        grid_res = AgGrid(
+            ag_df,
+            gridOptions=grid_options,
+            allow_unsafe_jscode=True,
+            update_mode=GridUpdateMode.VALUE_CHANGED,
+            height=600,  # Height relatif
+            theme='alpine',
+            key='v5_worksheet',
+            use_container_width=True,
+            fit_columns_on_grid_load=True,  # Fit kolom saat load
+            enable_enterprise_modules=False,  # Nonaktifkan enterprise untuk performa
+            reload_data=False,
+            try_to_convert_back_to_original_types=False,
+            allow_unsafe_html=True
+        )
+    
     updated_df = pd.DataFrame(grid_res['data'])
 
+    # Bagian save dan push
     st.markdown("---")
     c_save, c_push, c_info = st.columns([1, 1, 2])
     with c_save:
         if st.button("💾 Save (Local)", type="primary", use_container_width=True):
             st.session_state.edited_v5 = updated_df.copy()
-            st.success("Saved!")
+            st.success("Disimpan di session state!")
+            
     with c_push:
         if st.button("☁️ Push (GSheets)", type="secondary", use_container_width=True):
             if 'edited_v5' not in st.session_state: 
-                st.warning("Save locally first!")
+                st.warning("Simpan lokal terlebih dahulu!")
             else:
-                with st.spinner("Pushing..."):
+                with st.spinner("Mengunggah ke Google Sheets..."):
                     keep = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus'] + [f'Cons_{m}' for m in cycle_months]
                     final = st.session_state.edited_v5[keep].copy()
                     final['Last_Update'] = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -390,9 +624,10 @@ with tab1:
                     ok, msg = gs.save_data(final, "consensus_rofo")
                     if ok: 
                         st.balloons()
-                        st.success("Done!")
+                        st.success("Data berhasil diunggah!")
                     else: 
-                        st.error(msg)
+                        st.error(f"Error: {msg}")
+                        
     with c_info:
         total = 0
         for m in cycle_months:
@@ -410,7 +645,6 @@ with tab2:
     if base_df.empty: 
         st.stop()
     
-    # PERBAIKAN: Gunakan horizon_months dari session state
     if 'horizon_months' in st.session_state:
         full_horizon = st.session_state.horizon_months
     else:
