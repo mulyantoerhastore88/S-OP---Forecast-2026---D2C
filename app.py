@@ -16,14 +16,14 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V4.3",
+    page_title="ERHA S&OP Dashboard V4.4",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# CSS STYLING (IMPROVED FOR ZOOM)
+# CSS STYLING
 # ============================================================================
 st.markdown("""
 <style>
@@ -38,7 +38,7 @@ st.markdown("""
     .stSelectbox label { font-weight: bold; }
     div[data-testid="stMetricValue"] { font-size: 1.5rem; }
     
-    /* CSS hack untuk memaksimalkan lebar container saat zoom out */
+    /* CSS Fix untuk Zoom Out Browser */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
@@ -144,6 +144,7 @@ def load_data_with_cycle(selected_months):
         # Merge
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
+        # Handle Product Focus
         if 'Product_Focus' not in merged_df.columns:
             merged_df['Product_Focus'] = ""
         else:
@@ -256,7 +257,7 @@ if sel_cover == "Over (>1.5)": filtered_df = filtered_df[filtered_df['Month_Cove
 tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics Summary"])
 
 # ============================================================================
-# TAB 1: WORKSHEET (RESPONSIVE GRID)
+# TAB 1: WORKSHEET
 # ============================================================================
 with tab1:
     edit_df = filtered_df.copy()
@@ -275,10 +276,17 @@ with tab1:
     ag_df = edit_df[ag_cols].copy()
 
     # --- JS STYLING ---
+    
+    # 1. WARNA SKU FOCUS (GANTI JADI TEAL / TOSCA)
     js_sku_focus = JsCode("""
     function(params) {
         if (params.data.Product_Focus === 'Yes') {
-            return {'backgroundColor': '#FEF9C3', 'color': '#854D0E', 'fontWeight': 'bold', 'borderLeft': '4px solid #FACC15'};
+            return {
+                'backgroundColor': '#CCFBF1', // Teal 100
+                'color': '#0F766E',           // Teal 700
+                'fontWeight': 'bold',
+                'borderLeft': '4px solid #14B8A6' // Teal 500
+            };
         }
         return null; 
     }
@@ -316,41 +324,32 @@ with tab1:
     """)
     js_edit = JsCode("function(p) { return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'fontWeight': 'bold', 'color': '#1E40AF'}; }")
 
-    # --- GRID CONFIG (RESPONSIVE SETTINGS) ---
+    # --- GRID CONFIG (RESPONSIVE) ---
     gb = GridOptionsBuilder.from_dataframe(ag_df)
-    
-    # 1. GLOBAL SETTINGS: Row & Header Height agar tidak gepeng saat zoom out
-    gb.configure_grid_options(rowHeight=35, headerHeight=40) 
-    
-    # 2. DEFAULT COLUMN: Gunakan minWidth agar kolom tidak gepeng, dan resizable
+    gb.configure_grid_options(rowHeight=35, headerHeight=40)
     gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False, minWidth=95)
     
-    # 3. PINNED COLUMNS (LEFT)
+    # Pinned Cols
     gb.configure_column("sku_code", pinned="left", width=100, minWidth=100, cellStyle=js_sku_focus)
-    
-    # PRODUCT NAME ELASTIS: Diberi flex=1 agar memakan sisa ruang kosong saat zoom out
     gb.configure_column("Product_Name", pinned="left", minWidth=200, flex=1)
-    
     gb.configure_column("Channel", pinned="left", width=110, minWidth=110, cellStyle=js_channel)
-    gb.configure_column("Product_Focus", hide=True) # Hidden but active
+    gb.configure_column("Product_Focus", hide=True)
     
-    # 4. DATA COLUMNS
+    # Styled Cols
     gb.configure_column("Brand", cellStyle=js_brand, width=120, minWidth=120)
     gb.configure_column("Month_Cover", cellStyle=js_cover, width=100, minWidth=100)
     
-    # Numeric Format - Gunakan minWidth yang cukup
+    # Number Format
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus'] and '%' not in c:
             gb.configure_column(c, type=["numericColumn"], valueFormatter="x.toLocaleString()", minWidth=105)
     
-    # Percentage Columns
     for m in cycle_months:
         pct_col = f'{m}_%'
         if pct_col in ag_cols:
             gb.configure_column(pct_col, header_name=f"{m} %", type=["numericColumn"], 
                               valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
 
-    # Editable Columns (Pinned Right)
     for m in cycle_months:
         if f'Cons_{m}' in ag_cols:
             gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, 
@@ -359,26 +358,18 @@ with tab1:
 
     gb.configure_selection('single')
     
-    # LEGEND
+    # LEGEND (Updated)
     st.markdown("""
     <div style="font-size:0.8rem; margin-bottom:5px;">
-        <span style="background:#FEF9C3; color:#854D0E; padding:2px 6px; border-radius:4px; border:1px solid #FACC15"><b>★ Focus SKU</b></span>
+        <span style="background:#CCFBF1; color:#0F766E; padding:2px 6px; border-radius:4px; border:1px solid #14B8A6"><b>★ Focus SKU</b></span>
         <span style="background:#FCE7F3; color:#BE185D; padding:2px 6px; border-radius:4px;"><b>Cover > 1.5</b></span>
         <span style="background:#FFEDD5; color:#9A3412; padding:2px 6px; border-radius:4px;"><b>Growth < 90%</b></span>
     </div>
     """, unsafe_allow_html=True)
     
-    # RENDER GRID (use_container_width=True Wajib agar full screen)
-    grid_res = AgGrid(
-        ag_df, 
-        gridOptions=gb.build(), 
-        allow_unsafe_jscode=True, 
-        update_mode=GridUpdateMode.VALUE_CHANGED, 
-        height=600,  # Tinggi fix agar scroll bar vertikal muncul proporsional
-        theme='alpine', 
-        key='v4_3_grid',
-        use_container_width=True # KUNCI RESPONSIVE UTAMA
-    )
+    grid_res = AgGrid(ag_df, gridOptions=gb.build(), allow_unsafe_jscode=True, 
+                      update_mode=GridUpdateMode.VALUE_CHANGED, height=600, theme='alpine', 
+                      key='v4_4_grid', use_container_width=True)
     
     updated_df = pd.DataFrame(grid_res['data'])
 
