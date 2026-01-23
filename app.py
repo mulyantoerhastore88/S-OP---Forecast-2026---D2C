@@ -148,11 +148,11 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# 2. DATA LOADER (UPDATED WITH DYNAMIC DATE LOGIC)
+# 2. DATA LOADER (FIXED BRAND_GROUP ISSUE)
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_all_data():
-    """Load and process all required data with Dynamic Month Logic"""
+    """Load and process all required data with Dynamic Month Logic & Fixed Columns"""
     
     try:
         gs = GSheetConnector()
@@ -162,65 +162,68 @@ def load_all_data():
         rofo_df = gs.get_sheet_data("rofo_current")
         stock_df = gs.get_sheet_data("stock_onhand")
         
+        # === 1. CLEAN COLUMN NAMES (Supaya aman spasi vs underscore) ===
+        for df in [sales_df, rofo_df, stock_df]:
+            if not df.empty:
+                # Ganti spasi dengan underscore, hilangkan spasi depan/belakang
+                df.columns = [c.strip().replace(' ', '_') for c in df.columns]
+        # ===============================================================
+
         if sales_df.empty or rofo_df.empty:
             st.error("❌ Critical data missing (sales or rofo).")
             return pd.DataFrame()
 
         # ===== DYNAMIC MONTH LOGIC (AUTO CYCLE) =====
-        # Generate 3 bulan ke depan berdasarkan tanggal sekarang
-        # Logic: Forecast M+1, M+2, M+3 (Misal Jan -> Feb, Mar, Apr)
         current_date = datetime.now()
         adjustment_months = []
         
-        # Loop generate 3 bulan
         for i in range(1, 4): 
             future_date = current_date + relativedelta(months=i)
-            # Format: 'Feb-26' (Harus sama dengan header di GSheet)
             fname = future_date.strftime("%b-%y")
             adjustment_months.append(fname)
             
-        # Simpan ke session state agar bisa dipakai widget lain
         st.session_state.adjustment_months = adjustment_months
         
         # ===== PROSES SALES HISTORY =====
-        # Ambil 3 bulan terakhir dari data sales yg tersedia
-        # (Sederhananya kita ambil 3 kolom terakhir yg formatnya tanggal)
-        # Atau hardcode logic Previous Months jika perlu
-        sales_cols_candidates = [c for c in sales_df.columns if '-' in c] # Asumsi nama kolom ada '-'
-        available_sales_months = sales_cols_candidates[-3:] # Ambil 3 terakhir
+        sales_cols_candidates = [c for c in sales_df.columns if '-' in c]
+        available_sales_months = sales_cols_candidates[-3:]
         
-        # Hitung L3M Avg
         if available_sales_months:
             sales_df['L3M_Avg'] = sales_df[available_sales_months].mean(axis=1).round(0)
         else:
             sales_df['L3M_Avg'] = 0
 
         # ===== MERGE DATA =====
-        # Kunci Merge
-        merge_keys = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+        # Update: Tambahkan 'Brand_Group' ke sini
+        possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier']
         
-        # Cek ketersediaan kunci di kedua DF
-        valid_keys = [k for k in merge_keys if k in sales_df.columns and k in rofo_df.columns]
+        # Cek kunci mana saja yang VALID (ada di sales maupun rofo)
+        # Kita prioritaskan kunci yang ada di KEDUA file
+        valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # Siapkan kolom yang mau diambil
-        sales_subset = sales_df[valid_keys + ['L3M_Avg'] + available_sales_months].copy()
+        # Siapkan kolom Sales
+        sales_cols_to_keep = valid_keys + ['L3M_Avg'] + available_sales_months
+        sales_subset = sales_df[sales_cols_to_keep].copy()
         
-        # Cek apakah kolom forecast bulan depan sudah ada di ROFO Sheet
+        # Siapkan kolom ROFO
         rofo_cols_to_take = valid_keys.copy()
+        
+        # === FIX: Pastikan Brand_Group terambil dari ROFO jika belum masuk valid_keys ===
+        # (Kasus: Brand_Group ada di ROFO tapi TIDAK ada di Sales History)
+        if 'Brand_Group' in rofo_df.columns and 'Brand_Group' not in valid_keys:
+            rofo_cols_to_take.append('Brand_Group')
+            
+        # Ambil kolom bulan forecast
         for m in adjustment_months:
             if m in rofo_df.columns:
                 rofo_cols_to_take.append(m)
-            else:
-                # Jika kolom belum ada di GSheet, warning tapi jangan crash
-                # Nanti di-handle saat bikin dataframe final
-                pass
                 
         rofo_subset = rofo_df[rofo_cols_to_take].copy()
         
         # Merge Sales + ROFO
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Isi kolom bulan forecast yg hilang dengan 0 (jika di GSheet belum update kolom)
+        # Isi kolom bulan forecast yg hilang dengan 0
         for m in adjustment_months:
             if m not in merged_df.columns:
                 merged_df[m] = 0
