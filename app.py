@@ -75,7 +75,7 @@ st.markdown("""
         font-weight: 400;
     }
     
-    /* Table Container dengan Frozen Header */
+    /* Scrollable Table Container */
     .table-container {
         max-height: 600px;
         overflow-y: auto;
@@ -279,11 +279,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# AUTO-REFRESH (setiap 5 menit)
-# ============================================================================
-# st_autorefresh(interval=5 * 60 * 1000, key="data_refresh")
-
-# ============================================================================
 # GSHEET CONNECTOR CLASS
 # ============================================================================
 class GSheetConnector:
@@ -322,44 +317,26 @@ class GSheetConnector:
 def load_all_data():
     """Load and process all required data dari Google Sheets"""
     
-    # Buat loading state
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     try:
-        # Step 1: Connect to Google Sheets
-        status_text.text("🔄 Connecting to Google Sheets...")
-        progress_bar.progress(10)
-        
         # Gunakan GSheetConnector
         gs = GSheetConnector()
         
-        # Step 2: Load sales history
-        status_text.text("📥 Loading sales history...")
-        progress_bar.progress(30)
+        # Load sales history
         sales_df = gs.get_sheet_data("sales_history")
         
         if sales_df.empty:
             st.error("❌ No sales history data found")
             return pd.DataFrame()
         
-        # Step 3: Load ROFO current
-        status_text.text("📊 Loading ROFO forecast...")
-        progress_bar.progress(50)
+        # Load ROFO current
         rofo_df = gs.get_sheet_data("rofo_current")
         
         if rofo_df.empty:
             st.error("❌ No ROFO forecast data found")
             return pd.DataFrame()
         
-        # Step 4: Load stock data
-        status_text.text("📦 Loading stock data...")
-        progress_bar.progress(70)
+        # Load stock data
         stock_df = gs.get_sheet_data("stock_onhand")
-        
-        # Step 5: Process data
-        status_text.text("⚙️ Processing data...")
-        progress_bar.progress(90)
         
         # ===== PROSES DATA =====
         
@@ -375,8 +352,7 @@ def load_all_data():
         
         # 2. Get ROFO months
         adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-        all_rofo_months = adjustment_months
-        available_rofo_months = [m for m in all_rofo_months if m in rofo_df.columns]
+        available_rofo_months = [m for m in adjustment_months if m in rofo_df.columns]
         
         # 3. Merge data
         sales_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'L3M_Avg']
@@ -422,20 +398,12 @@ def load_all_data():
             if month in merged_df.columns:
                 merged_df[f'Cons_{month}'] = merged_df[month]
         
-        status_text.text("✅ Data loaded successfully!")
-        progress_bar.progress(100)
-        time.sleep(0.5)
-        status_text.empty()
-        progress_bar.empty()
-        
         # Simpan informasi bulan ke session state
         st.session_state.adjustment_months = [m for m in adjustment_months if m in available_rofo_months]
         
         return merged_df
         
     except Exception as e:
-        status_text.empty()
-        progress_bar.empty()
         st.error(f"❌ Error loading data: {str(e)}")
         st.info("⚠️ Using demo data for now.")
         
@@ -444,7 +412,6 @@ def load_all_data():
 
 def create_demo_data():
     """Create demo data if Google Sheets fails"""
-    st.warning("⚠️ Using demo data. Real data will be loaded when Google Sheets connection is fixed.")
     
     np.random.seed(42)
     
@@ -596,7 +563,7 @@ with st.container():
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# MEETING INFO BAR - MODERN
+# MEETING INFO BAR
 # ============================================================================
 with stylable_container(
     key="meeting_bar",
@@ -621,7 +588,7 @@ with stylable_container(
         st_toggle_switch("🔔 Notifications", key="notifications")
 
 # ============================================================================
-# LOAD DATA DENGAN LOADING ANIMATION
+# LOAD DATA
 # ============================================================================
 with st.spinner('🔄 Loading latest data from Google Sheets...'):
     all_df = load_all_data()
@@ -631,7 +598,7 @@ if 'adjustment_months' not in st.session_state:
     st.session_state.adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
 
 # ============================================================================
-# QUICK METRICS OVERVIEW - MODERN
+# QUICK METRICS OVERVIEW
 # ============================================================================
 st.markdown("### 📊 Quick Overview")
 metrics_cols = st.columns(5)
@@ -726,7 +693,7 @@ with metrics_cols[4]:
         style_metric_cards()
 
 # ============================================================================
-# MODERN FILTER BAR
+# FILTER BAR
 # ============================================================================
 with st.container():
     st.markdown("### 🔍 Filter Data")
@@ -797,16 +764,16 @@ with st.container():
                     st.rerun()
 
 # ============================================================================
-# TAB INTERFACE - MODERN
+# TAB INTERFACE
 # ============================================================================
 tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics Dashboard", "🎯 Focus Areas"])
 
 # ============================================================================
-# TAB 1: INPUT & ADJUSTMENT (SATU TABEL SAJA YANG EDITABLE)
+# TAB 1: INPUT & ADJUSTMENT (DIRECT EDITABLE TABLE)
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 Interactive Forecast Adjustment")
-    st.markdown("*Double-click on Consensus cells to edit values directly*")
+    st.markdown("*Edit consensus values directly in the table below*")
     
     # Filter data untuk tab 1
     filtered_df = all_df.copy()
@@ -862,15 +829,11 @@ with tab1:
             <div class="color-box" style="background-color: #FEF3C7;"></div>
             <span class="legend-text">ER Hair</span>
         </div>
-        <div class="legend-item">
-            <div class="color-box" style="background-color: #F0F9FF; border: 1px solid #3B82F6;"></div>
-            <span class="legend-text">Editable Consensus</span>
-        </div>
     </div>
     """, unsafe_allow_html=True)
     
     # =================================================================
-    # PREPARE DATA FOR SINGLE EDITABLE TABLE
+    # PREPARE DATA FOR EDITABLE TABLE
     # =================================================================
     
     # Buat dataframe untuk editing
@@ -976,13 +939,13 @@ with tab1:
         )
     
     # =================================================================
-    # DISPLAY SINGLE EDITABLE TABLE (HANYA INI DI TAB 1)
+    # DISPLAY EDITABLE TABLE
     # =================================================================
     
-    st.markdown("#### 📋 Forecast Adjustment Table")
-    st.markdown("*Edit consensus values directly in the table below*")
+    st.markdown("#### 📋 Edit Consensus Values in Table")
+    st.markdown("*Double-click on any cell in the Consensus columns to edit*")
     
-    # Display the data editor - INI SATU-SATUNYA TABEL DI TAB 1
+    # Display the data editor - INI TABEL UTAMA YANG BISA DIEDIT
     edited_df = st.data_editor(
         edit_df[display_cols],
         column_config=column_config,
@@ -994,7 +957,43 @@ with tab1:
     )
     
     # =================================================================
-    # SAVE & ACTIONS SECTION (LANGSUNG DI BAWAH TABEL)
+    # CALCULATE UPDATED PERCENTAGES
+    # =================================================================
+    
+    # Update percentage columns berdasarkan edited consensus values
+    for month in st.session_state.adjustment_months:
+        cons_col = f'Cons_{month}'
+        pct_col = f'{month}_%'
+        
+        if cons_col in edited_df.columns and 'L3M_Avg' in edited_df.columns:
+            edited_df[pct_col] = (edited_df[cons_col] / 
+                                 edited_df['L3M_Avg'].replace(0, np.nan) * 100).round(1)
+            edited_df[pct_col] = edited_df[pct_col].replace([np.inf, -np.inf], 0).fillna(100)
+    
+    # =================================================================
+    # DISPLAY UPDATED VIEW (READ-ONLY)
+    # =================================================================
+    
+    st.markdown("---")
+    st.markdown("#### 📊 Updated View with Changes")
+    
+    # Buat formatted display untuk updated view
+    display_view_df = edited_df.copy()
+    
+    # Format columns untuk display
+    for month in st.session_state.adjustment_months:
+        pct_col = f'{month}_%'
+        if pct_col in display_view_df.columns:
+            display_view_df[pct_col] = display_view_df[pct_col].apply(
+                lambda x: f"{x:.1f}%" if pd.notnull(x) else "0.0%"
+            )
+    
+    # Display dengan HTML styling
+    html_table = create_styled_html_table(display_view_df, editable_consensus=False)
+    st.markdown(html_table, unsafe_allow_html=True)
+    
+    # =================================================================
+    # SAVE & ACTIONS
     # =================================================================
     
     st.markdown("---")
@@ -1003,7 +1002,7 @@ with tab1:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("💾 Save Consensus Values", type="primary", use_container_width=True):
+        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
             # Simpan ke session state
             st.session_state.edited_forecast_data = edited_df.copy()
             
@@ -1026,7 +1025,7 @@ with tab1:
                     })
             
             st.session_state.forecast_changes = changes_summary
-            st.success("✅ Consensus values saved successfully!")
+            st.success("✅ All changes saved successfully!")
             
             # Show summary
             if changes_summary:
@@ -1050,7 +1049,7 @@ with tab1:
             )
     
     with col3:
-        if st.button("🔄 Reset to Original", type="secondary", use_container_width=True):
+        if st.button("🔄 Reset All Changes", type="secondary", use_container_width=True):
             if 'edited_forecast_data' in st.session_state:
                 del st.session_state.edited_forecast_data
             if 'forecast_changes' in st.session_state:
@@ -1089,7 +1088,7 @@ with tab1:
                     st.metric(f"{month} Total", f"{month_total:,.0f}")
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD (TETAP LENGKAP)
+# TAB 2: ANALYTICS DASHBOARD
 # ============================================================================
 with tab2:
     st.markdown("### 📈 Consensus Results & Projections")
@@ -1247,71 +1246,9 @@ with tab2:
                 
                 fig.update_layout(height=400)
                 st.plotly_chart(fig, use_container_width=True)
-        
-        # Chart 3: Growth comparison
-        st.markdown("#### 📈 Growth Analysis")
-        
-        if 'L3M_Avg' in results_df.columns:
-            growth_data = []
-            for month in st.session_state.adjustment_months:
-                cons_col = f'Cons_{month}'
-                if cons_col in results_df.columns:
-                    growth = ((results_df[cons_col].sum() / (results_df['L3M_Avg'].sum() / 3) - 1) * 100).round(1)
-                    growth_data.append({
-                        'Month': month,
-                        'Growth %': growth
-                    })
-            
-            if growth_data:
-                growth_df = pd.DataFrame(growth_data)
-                
-                fig = px.bar(
-                    growth_df,
-                    x='Month',
-                    y='Growth %',
-                    title="Growth % vs L3M Average",
-                    color='Growth %',
-                    color_continuous_scale='RdYlGn',
-                    text='Growth %'
-                )
-                
-                fig.update_traces(texttemplate='%{y:.1f}%', textposition='outside')
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-    
-    # =================================================================
-    # DETAILED DATA VIEW
-    # =================================================================
-    st.markdown("---")
-    st.markdown("#### 📋 Detailed Data View")
-    
-    detailed_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'L3M_Avg', 'Month_Cover']
-    
-    # Add consensus columns
-    for month in st.session_state.adjustment_months:
-        cons_col = f'Cons_{month}'
-        if cons_col in results_df.columns:
-            detailed_cols.append(cons_col)
-    
-    # Add growth % columns
-    for month in st.session_state.adjustment_months:
-        cons_col = f'Cons_{month}'
-        if cons_col in results_df.columns and 'L3M_Avg' in results_df.columns:
-            growth_col = f'Cons_{month}_Growth'
-            results_df[growth_col] = (results_df[cons_col] / results_df['L3M_Avg'].replace(0, np.nan) * 100).round(1)
-            detailed_cols.append(growth_col)
-    
-    detailed_df = results_df[detailed_cols].copy()
-    detailed_df.insert(0, 'No.', range(1, len(detailed_df) + 1))
-    
-    if len(detailed_df) > 50:
-        st.info(f"Showing first 50 of {len(detailed_df)} SKUs")
-        st.dataframe(detailed_df.head(50), use_container_width=True, hide_index=True)
-    else:
-        st.dataframe(detailed_df, use_container_width=True, hide_index=True)
 
 # ============================================================================
-# TAB 3: FOCUS AREAS (TETAP LENGKAP)
+# TAB 3: FOCUS AREAS
 # ============================================================================
 with tab3:
     st.markdown("### 🎯 Focus Areas & Action Items")
@@ -1479,7 +1416,7 @@ with footer_cols[2]:
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# SIDEBAR
+# SIDEBAR (OPTIONAL)
 # ============================================================================
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
@@ -1500,3 +1437,10 @@ with st.sidebar:
     
     if st.button("Export Current View", use_container_width=True):
         st.info("Use the export buttons in Tab 1")
+    
+    # Debug info
+    st.markdown("---")
+    with st.expander("Debug Info"):
+        st.write(f"Data shape: {all_df.shape}")
+        st.write(f"SKUs loaded: {len(all_df)}")
+        st.write(f"Adjustment months: {st.session_state.adjustment_months}")
