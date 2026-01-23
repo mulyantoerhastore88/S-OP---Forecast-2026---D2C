@@ -8,15 +8,14 @@ from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
 import time
-import re
+from dateutil.relativedelta import relativedelta # Library untuk hitung bulan otomatis
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode, JsCode
 from streamlit_extras.metric_cards import style_metric_cards
 from streamlit_extras.stylable_container import stylable_container
 from streamlit_extras.toggle_switch import st_toggle_switch
-from streamlit_autorefresh import st_autorefresh
 
 # ============================================================================
-# PAGE CONFIG - MODERN
+# PAGE CONFIG
 # ============================================================================
 st.set_page_config(
     page_title="ERHA S&OP 3-Month Consensus Dashboard",
@@ -24,9 +23,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
     menu_items={
-        'Get Help': 'https://www.erhagroup.com',
-        'Report a bug': None,
-        'About': "ERHA S&OP Dashboard v2.0"
+        'About': "ERHA S&OP Dashboard v3.0 (Auto-Cycle & Write-Back)"
     }
 )
 
@@ -38,17 +35,14 @@ st.markdown("""
     /* Modern Gradient Theme */
     :root {
         --primary: #3B82F6;
-        --primary-dark: #1E3A8A;
         --secondary: #10B981;
         --danger: #EF4444;
         --warning: #F59E0B;
         --light: #F9FAFB;
         --dark: #1F2937;
-        --border: #E5E7EB;
-        --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
     }
     
-    /* Modern Header */
     .main-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 2rem;
@@ -65,165 +59,14 @@ st.markdown("""
         background: linear-gradient(90deg, #FFFFFF 0%, #E5E7EB 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        letter-spacing: -0.5px;
     }
     
     .sub-title {
         font-size: 1.1rem;
         opacity: 0.9;
         margin-top: 0.5rem;
-        font-weight: 400;
     }
-    
-    /* Scrollable Table Container */
-    .table-container {
-        max-height: 600px;
-        overflow-y: auto;
-        overflow-x: auto;
-        border: 1px solid #E5E7EB;
-        border-radius: 8px;
-        margin: 15px 0;
-        position: relative;
-    }
-    
-    /* Fixed Header */
-    .sticky-header {
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        background-color: #1E3A8A !important;
-    }
-    
-    .sticky-header th {
-        position: sticky;
-        top: 0;
-        background-color: #1E3A8A !important;
-        color: white !important;
-        font-weight: 600;
-        padding: 12px 8px !important;
-        border-bottom: 2px solid #D1D5DB;
-    }
-    
-    /* Table styling */
-    .forecast-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85em;
-    }
-    
-    .forecast-table th, .forecast-table td {
-        padding: 8px;
-        text-align: left;
-        border-bottom: 1px solid #E5E7EB;
-        white-space: nowrap;
-    }
-    
-    .forecast-table th {
-        background-color: #1E3A8A;
-        color: white;
-        font-weight: 600;
-    }
-    
-    .forecast-table tr:hover {
-        background-color: #F3F4F6;
-    }
-    
-    /* Conditional Formatting */
-    .month-cover-high {
-        background-color: #FCE7F3 !important;
-        color: #BE185D !important;
-        font-weight: 600 !important;
-        border-left: 3px solid #BE185D !important;
-    }
-    
-    .growth-low {
-        background-color: #FFEDD5 !important;
-        color: #9A3412 !important;
-        font-weight: 600 !important;
-        border-left: 3px solid #9A3412 !important;
-    }
-    
-    .growth-high {
-        background-color: #FEE2E2 !important;
-        color: #991B1B !important;
-        font-weight: 600 !important;
-        border-left: 3px solid #991B1B !important;
-    }
-    
-    /* Brand Colors */
-    .brand-acneact { background-color: #E0F2FE !important; }
-    .brand-age-corrector { background-color: #F0F9FF !important; }
-    .brand-truwhite { background-color: #F0FDF4 !important; }
-    .brand-erhair { background-color: #FEF3C7 !important; }
-    .brand-hiserha { background-color: #FEF7CD !important; }
-    .brand-perfect-shield { background-color: #FCE7F3 !important; }
-    .brand-skinsitive { background-color: #F3E8FF !important; }
-    .brand-erha-others { background-color: #F5F5F5 !important; }
-    
-    /* Percentage styling */
-    .percentage-cell {
-        text-align: right !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Consensus cell styling (editable) */
-    .consensus-cell-editable {
-        background-color: #F0F9FF !important;
-        border: 1px solid #3B82F6 !important;
-        font-weight: 600 !important;
-    }
-    
-    .consensus-cell-editable:hover {
-        background-color: #DBEAFE !important;
-        cursor: pointer;
-    }
-    
-    /* Modern Cards */
-    .metric-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow);
-    }
-    
-    /* Modern Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: transparent;
-        padding: 0;
-        border-bottom: 2px solid var(--border);
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        padding: 12px 24px;
-        border: none;
-        border-bottom: 3px solid transparent;
-        background: transparent;
-        font-weight: 600;
-        color: var(--dark);
-        opacity: 0.7;
-        transition: all 0.2s ease;
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        opacity: 1;
-        color: var(--primary);
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: transparent !important;
-        color: var(--primary) !important;
-        opacity: 1 !important;
-        border-bottom: 3px solid var(--primary) !important;
-    }
-    
+
     /* Color Legend Styling */
     .color-legend {
         display: flex;
@@ -236,58 +79,26 @@ st.markdown("""
         flex-wrap: wrap;
     }
     
-    .legend-item {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    
-    .color-box {
-        width: 16px;
-        height: 16px;
-        border-radius: 3px;
-    }
-    
-    .legend-text {
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #4B5563;
-    }
-    
-    /* Data Editor Custom Styling */
-    div[data-testid="stDataEditor"] {
-        border-radius: 8px;
-        border: 1px solid #E5E7EB;
-    }
-    
-    /* Focus on editable cells */
-    div[data-testid="stEditableColumn"] {
-        background-color: #F0F9FF !important;
-    }
-    
-    div[data-testid="stEditableColumn"]:focus {
-        outline: 2px solid #3B82F6 !important;
-        outline-offset: -2px;
-    }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-        .main-title { font-size: 2rem; }
-        .table-container { max-height: 400px; }
-    }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .color-box { width: 16px; height: 16px; border-radius: 3px; }
+    .legend-text { font-size: 0.8rem; font-weight: 500; color: #4B5563; }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# GSHEET CONNECTOR CLASS
+# 1. GSHEET CONNECTOR (UPDATED WITH SAVE FUNCTION)
 # ============================================================================
 class GSheetConnector:
     def __init__(self):
-        self.sheet_id = st.secrets["gsheets"]["sheet_id"]
-        self.service_account_info = json.loads(st.secrets["gsheets"]["service_account_info"])
-        self.client = None
-        self.connect()
-    
+        # Cek apakah secrets tersedia
+        if "gsheets" in st.secrets:
+            self.sheet_id = st.secrets["gsheets"]["sheet_id"]
+            self.service_account_info = json.loads(st.secrets["gsheets"]["service_account_info"])
+            self.client = None
+            self.connect()
+        else:
+            st.error("❌ Secrets 'gsheets' not found in .streamlit/secrets.toml")
+
     def connect(self):
         """Connect to Google Sheets API"""
         try:
@@ -299,156 +110,144 @@ class GSheetConnector:
         except Exception as e:
             st.error(f"Failed to connect to Google Sheets: {str(e)}")
             raise
-    
+
     def get_sheet_data(self, sheet_name):
         """Read sheet as DataFrame"""
         try:
             worksheet = self.sheet.worksheet(sheet_name)
             data = worksheet.get_all_records()
             return pd.DataFrame(data)
+        except gspread.WorksheetNotFound:
+            st.warning(f"⚠️ Worksheet '{sheet_name}' not found.")
+            return pd.DataFrame()
         except Exception as e:
             st.error(f"Error reading sheet {sheet_name}: {str(e)}")
             return pd.DataFrame()
 
+    def save_data(self, df, sheet_name):
+        """Write DataFrame to Sheet (Overwrite)"""
+        try:
+            # 1. Cek sheet, create if not exists
+            try:
+                worksheet = self.sheet.worksheet(sheet_name)
+            except gspread.WorksheetNotFound:
+                worksheet = self.sheet.add_worksheet(title=sheet_name, rows=1000, cols=20)
+                st.info(f"Created new worksheet: {sheet_name}")
+
+            # 2. Prepare Data (Handle NaN -> Empty String for JSON)
+            df_clean = df.fillna('')
+            # Convert to list of lists (Header + Rows)
+            data_to_upload = [df_clean.columns.values.tolist()] + df_clean.values.tolist()
+
+            # 3. Clear & Update
+            worksheet.clear()
+            worksheet.update(data_to_upload)
+            
+            return True, "Success"
+        except Exception as e:
+            return False, str(e)
+
 # ============================================================================
-# DATA LOADER DENGAN GSHEETCONNECTOR
+# 2. DATA LOADER (UPDATED WITH DYNAMIC DATE LOGIC)
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_all_data():
-    """Load and process all required data dari Google Sheets"""
+    """Load and process all required data with Dynamic Month Logic"""
     
     try:
-        # Gunakan GSheetConnector
         gs = GSheetConnector()
         
-        # Load sales history
+        # Load Raw Data
         sales_df = gs.get_sheet_data("sales_history")
-        
-        if sales_df.empty:
-            st.error("❌ No sales history data found")
-            return pd.DataFrame()
-        
-        # Load ROFO current
         rofo_df = gs.get_sheet_data("rofo_current")
-        
-        if rofo_df.empty:
-            st.error("❌ No ROFO forecast data found")
-            return pd.DataFrame()
-        
-        # Load stock data
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # ===== PROSES DATA =====
+        if sales_df.empty or rofo_df.empty:
+            st.error("❌ Critical data missing (sales or rofo).")
+            return pd.DataFrame()
+
+        # ===== DYNAMIC MONTH LOGIC (AUTO CYCLE) =====
+        # Generate 3 bulan ke depan berdasarkan tanggal sekarang
+        # Logic: Forecast M+1, M+2, M+3 (Misal Jan -> Feb, Mar, Apr)
+        current_date = datetime.now()
+        adjustment_months = []
         
-        # 1. Get last 3 months sales
-        sales_months = ['Oct-25', 'Nov-25', 'Dec-25']
-        available_sales_months = [m for m in sales_months if m in sales_df.columns]
+        # Loop generate 3 bulan
+        for i in range(1, 4): 
+            future_date = current_date + relativedelta(months=i)
+            # Format: 'Feb-26' (Harus sama dengan header di GSheet)
+            fname = future_date.strftime("%b-%y")
+            adjustment_months.append(fname)
+            
+        # Simpan ke session state agar bisa dipakai widget lain
+        st.session_state.adjustment_months = adjustment_months
         
-        if len(available_sales_months) < 3:
-            st.warning(f"⚠️ Only {len(available_sales_months)} of last 3 months available")
+        # ===== PROSES SALES HISTORY =====
+        # Ambil 3 bulan terakhir dari data sales yg tersedia
+        # (Sederhananya kita ambil 3 kolom terakhir yg formatnya tanggal)
+        # Atau hardcode logic Previous Months jika perlu
+        sales_cols_candidates = [c for c in sales_df.columns if '-' in c] # Asumsi nama kolom ada '-'
+        available_sales_months = sales_cols_candidates[-3:] # Ambil 3 terakhir
         
-        # Calculate L3M Average
-        sales_df['L3M_Avg'] = sales_df[available_sales_months].mean(axis=1).round(0)
+        # Hitung L3M Avg
+        if available_sales_months:
+            sales_df['L3M_Avg'] = sales_df[available_sales_months].mean(axis=1).round(0)
+        else:
+            sales_df['L3M_Avg'] = 0
+
+        # ===== MERGE DATA =====
+        # Kunci Merge
+        merge_keys = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
         
-        # 2. Get ROFO months
-        adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-        available_rofo_months = [m for m in adjustment_months if m in rofo_df.columns]
+        # Cek ketersediaan kunci di kedua DF
+        valid_keys = [k for k in merge_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # 3. Merge data
-        sales_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'L3M_Avg']
-        sales_cols += available_sales_months
-        sales_essential = sales_df[sales_cols].copy()
+        # Siapkan kolom yang mau diambil
+        sales_subset = sales_df[valid_keys + ['L3M_Avg'] + available_sales_months].copy()
         
-        rofo_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier']
-        if 'floor_price' in rofo_df.columns:
-            rofo_cols.append('floor_price')
-        rofo_cols += [m for m in available_rofo_months if m in rofo_df.columns]
-        rofo_essential = rofo_df[rofo_cols].copy()
-        
-        merged_df = pd.merge(
-            sales_essential,
-            rofo_essential,
-            on=['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier'],
-            how='inner',
-            suffixes=('_sales', '_rofo')
-        )
-        
-        # 4. Merge with stock
-        if not stock_df.empty and 'sku_code' in stock_df.columns:
-            if 'Stock_Qty' in stock_df.columns:
-                merged_df = pd.merge(
-                    merged_df,
-                    stock_df[['sku_code', 'Stock_Qty']],
-                    on='sku_code',
-                    how='left'
-                )
+        # Cek apakah kolom forecast bulan depan sudah ada di ROFO Sheet
+        rofo_cols_to_take = valid_keys.copy()
+        for m in adjustment_months:
+            if m in rofo_df.columns:
+                rofo_cols_to_take.append(m)
             else:
-                merged_df['Stock_Qty'] = 0
+                # Jika kolom belum ada di GSheet, warning tapi jangan crash
+                # Nanti di-handle saat bikin dataframe final
+                pass
+                
+        rofo_subset = rofo_df[rofo_cols_to_take].copy()
+        
+        # Merge Sales + ROFO
+        merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
+        
+        # Isi kolom bulan forecast yg hilang dengan 0 (jika di GSheet belum update kolom)
+        for m in adjustment_months:
+            if m not in merged_df.columns:
+                merged_df[m] = 0
+        
+        # ===== MERGE STOCK =====
+        if not stock_df.empty and 'sku_code' in stock_df.columns:
+            stock_col = 'Stock_Qty' if 'Stock_Qty' in stock_df.columns else stock_df.columns[1]
+            merged_df = pd.merge(merged_df, stock_df[['sku_code', stock_col]], on='sku_code', how='left')
+            merged_df.rename(columns={stock_col: 'Stock_Qty'}, inplace=True)
         else:
             merged_df['Stock_Qty'] = 0
-        
+            
         merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
         
-        # 5. Calculate Month Cover
+        # ===== CALCULATE METRICS =====
         merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg'].replace(0, 1)).round(1)
         merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
         
-        # 6. Add consensus columns
+        # ===== INIT CONSENSUS COLUMNS =====
         for month in adjustment_months:
-            if month in merged_df.columns:
-                merged_df[f'Cons_{month}'] = merged_df[month]
-        
-        # Simpan informasi bulan ke session state
-        st.session_state.adjustment_months = [m for m in adjustment_months if m in available_rofo_months]
-        
+            merged_df[f'Cons_{month}'] = merged_df[month]
+            
         return merged_df
-        
+
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
-        st.info("⚠️ Using demo data for now.")
-        
-        # Fallback ke data dummy
-        return create_demo_data()
-
-def create_demo_data():
-    """Create demo data if Google Sheets fails"""
-    
-    np.random.seed(42)
-    
-    brands = ['Acneact', 'Age Corrector', 'Truwhite', 'ER Hair', 'His Erha', 'Perfect Shield', 'Skinsitive']
-    skus = [f'ERH{str(i).zfill(3)}' for i in range(1, 101)]
-    
-    data = {
-        'sku_code': skus,
-        'Product_Name': [f'Product {i}' for i in range(1, 101)],
-        'Brand': np.random.choice(brands, 100),
-        'Brand_Group': ['Skincare', 'Haircare', 'Bodycare'] * 33 + ['Skincare'],
-        'SKU_Tier': np.random.choice(['A', 'B', 'C'], 100, p=[0.2, 0.3, 0.5]),
-        'Oct-25': np.random.randint(100, 1000, 100),
-        'Nov-25': np.random.randint(100, 1000, 100),
-        'Dec-25': np.random.randint(100, 1000, 100),
-        'Feb-26': np.random.randint(50, 1500, 100),
-        'Mar-26': np.random.randint(50, 1500, 100),
-        'Apr-26': np.random.randint(50, 1500, 100),
-        'floor_price': np.random.randint(50000, 500000, 100),
-        'Stock_Qty': np.random.randint(0, 5000, 100)
-    }
-    
-    df = pd.DataFrame(data)
-    
-    # Calculate metrics
-    df['L3M_Avg'] = df[['Oct-25', 'Nov-25', 'Dec-25']].mean(axis=1).round(0)
-    df['Month_Cover'] = (df['Stock_Qty'] / df['L3M_Avg'].replace(0, 1)).round(1)
-    df['Month_Cover'] = df['Month_Cover'].replace([np.inf, -np.inf], 0)
-    
-    # Add consensus columns
-    for month in ['Feb-26', 'Mar-26', 'Apr-26']:
-        df[f'Cons_{month}'] = df[month]
-    
-    # Simpan ke session state
-    st.session_state.adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-    
-    return df
+        return pd.DataFrame()
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -456,328 +255,99 @@ def create_demo_data():
 def calculate_percentage_columns(df):
     """Calculate percentage columns vs L3M Avg"""
     df_calc = df.copy()
-    
     for month in st.session_state.adjustment_months:
-        if month in df_calc.columns and 'L3M_Avg' in df_calc.columns:
+        cons_col = f'Cons_{month}'
+        if cons_col in df_calc.columns and 'L3M_Avg' in df_calc.columns:
             pct_col = f'{month}_%'
-            # Calculate percentage
-            df_calc[pct_col] = (df_calc[month] / df_calc['L3M_Avg'].replace(0, np.nan) * 100).round(1)
-            # Replace inf and nan
+            # Calculate percentage based on CONSENSUS value
+            df_calc[pct_col] = (df_calc[cons_col] / df_calc['L3M_Avg'].replace(0, np.nan) * 100).round(1)
             df_calc[pct_col] = df_calc[pct_col].replace([np.inf, -np.inf], 0).fillna(100)
-    
     return df_calc
 
-def create_styled_html_table(df, editable_consensus=False):
-    """Create HTML table with styling from dataframe"""
-    
-    html = """
-    <div class="table-container">
-        <table class="forecast-table">
-            <thead class="sticky-header">
-                <tr>
-    """
-    
-    # Header row
-    for col in df.columns:
-        display_name = col.replace('_', ' ').replace('-', ' ').replace('Cons ', 'Consensus ')
-        html += f'<th>{display_name}</th>'
-    
-    html += '</tr></thead><tbody>'
-    
-    # Data rows dengan conditional formatting
-    for idx, row in df.iterrows():
-        html += '<tr>'
-        
-        for col in df.columns:
-            value = row[col]
-            cell_class = ''
-            display_value = value
-            
-            # Format persentase
-            if '_%' in col:
-                try:
-                    # Extract numeric value untuk conditional formatting
-                    if isinstance(value, str) and '%' in value:
-                        num_value = float(value.replace('%', ''))
-                    else:
-                        num_value = float(value)
-                    
-                    display_value = f"{num_value:.1f}%" if isinstance(num_value, (int, float)) else value
-                    cell_class += 'percentage-cell '
-                    
-                    if num_value < 90:
-                        cell_class += 'growth-low '
-                    elif num_value > 130:
-                        cell_class += 'growth-high '
-                except:
-                    pass
-            
-            # Conditional formatting untuk Month_Cover
-            elif col == 'Month_Cover':
-                try:
-                    num_value = float(value)
-                    if num_value > 1.5:
-                        cell_class += 'month-cover-high '
-                    display_value = f"{num_value:.1f}"
-                except:
-                    pass
-            
-            # Brand coloring
-            elif col == 'Brand':
-                if isinstance(value, str):
-                    brand_lower = value.lower().replace(' ', '-').replace('_', '-')
-                    cell_class += f'brand-{brand_lower} '
-            
-            # Consensus cells styling jika editable
-            elif col.startswith('Cons_') and editable_consensus:
-                cell_class += 'consensus-cell-editable '
-            
-            html += f'<td class="{cell_class.strip()}">{display_value}</td>'
-        
-        html += '</tr>'
-    
-    html += '</tbody></table></div>'
-    
-    return html
+# ============================================================================
+# MAIN APP UI
+# ============================================================================
 
-# ============================================================================
-# MODERN HEADER
-# ============================================================================
+# Header
 with st.container():
     st.markdown("""
     <div class="main-header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <h1 class="main-title">📊 ERHA S&OP Dashboard</h1>
-                <p class="sub-title">3-Month Consensus | Real-time Collaboration | AI-Powered Insights</p>
+                <p class="sub-title">Rolling Forecast & Collaboration Tool</p>
             </div>
-            <div style="text-align: right;">
-                <div style="font-size: 0.9rem; opacity: 0.8;">Meeting Status</div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                    <div style="width: 8px; height: 8px; background: #10B981; border-radius: 50%;"></div>
-                    <span style="font-weight: 600;">Live</span>
-                </div>
+            <div>
+                <span style="background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 20px;">
+                    📅 Cycle: Auto-Rolling
+                </span>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# ============================================================================
-# MEETING INFO BAR
-# ============================================================================
+# Meeting Controls
 with stylable_container(
     key="meeting_bar",
-    css_styles="""
-    {
-        background: white;
-        padding: 1rem 1.5rem;
-        border-radius: 12px;
-        border: 1px solid #E5E7EB;
-        margin-bottom: 1.5rem;
-    }
-    """
+    css_styles="{background: white; padding: 1rem; border-radius: 12px; border: 1px solid #E5E7EB; margin-bottom: 1rem;}"
 ):
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-    with col1:
-        meeting_date = st.date_input("📅 Meeting Date", value=datetime.now().date(), key="meeting_date")
-    with col2:
-        st.selectbox("👥 Participants", ["All Teams", "Supply Chain", "Marketing", "Finance"], key="participants")
-    with col3:
-        st.selectbox("📁 Version", ["v2.0 - Current", "v1.0 - Previous"], key="version")
-    with col4:
-        st_toggle_switch("🔔 Notifications", key="notifications")
+    c1, c2, c3 = st.columns([2, 2, 1])
+    with c1:
+        st.info(f"📅 **Current Period:** {datetime.now().strftime('%B %Y')}")
+    with c2:
+        st.warning("⚠️ Data Source: Google Sheets (Live)")
+    with c3:
+        if st.button("🔄 Refresh Data"):
+            st.cache_data.clear()
+            st.rerun()
 
-# ============================================================================
-# LOAD DATA
-# ============================================================================
-with st.spinner('🔄 Loading latest data from Google Sheets...'):
+# Load Data
+with st.spinner('🔄 Loading & Calculating Forecast Cycle...'):
     all_df = load_all_data()
 
-# Initialize session state for months if not exists
+# Ensure adjustment_months exists in session state (fallback)
 if 'adjustment_months' not in st.session_state:
-    st.session_state.adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-
-# ============================================================================
-# QUICK METRICS OVERVIEW
-# ============================================================================
-st.markdown("### 📊 Quick Overview")
-metrics_cols = st.columns(5)
-
-with metrics_cols[0]:
-    with stylable_container(
-        key="metric1",
-        css_styles="""
-        {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            color: white;
-        }
-        """
-    ):
-        st.metric("Total SKUs", f"{len(all_df):,}", "SKUs")
-        style_metric_cards()
-
-with metrics_cols[1]:
-    with stylable_container(
-        key="metric2",
-        css_styles="""
-        {
-            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            color: white;
-        }
-        """
-    ):
-        if 'L3M_Avg' in all_df.columns:
-            total_sales = all_df['L3M_Avg'].sum() * 3
-        else:
-            total_sales = all_df[['Oct-25', 'Nov-25', 'Dec-25']].sum().sum() if all([col in all_df.columns for col in ['Oct-25', 'Nov-25', 'Dec-25']]) else 0
-        st.metric("Total Sales L3M", f"{total_sales:,.0f}", "units")
-        style_metric_cards()
-
-with metrics_cols[2]:
-    with stylable_container(
-        key="metric3",
-        css_styles="""
-        {
-            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            color: white;
-        }
-        """
-    ):
-        avg_cover = all_df['Month_Cover'].mean() if 'Month_Cover' in all_df.columns else 0
-        st.metric("Avg Month Cover", f"{avg_cover:.1f}", "months")
-        style_metric_cards()
-
-with metrics_cols[3]:
-    with stylable_container(
-        key="metric4",
-        css_styles="""
-        {
-            background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            color: white;
-        }
-        """
-    ):
-        if 'Month_Cover' in all_df.columns:
-            high_cover = len(all_df[all_df['Month_Cover'] > 1.5])
-        else:
-            high_cover = 0
-        st.metric("High Cover SKUs", f"{high_cover:,}", f"{high_cover/len(all_df)*100:.0f}%" if len(all_df) > 0 else "0%")
-        style_metric_cards()
-
-with metrics_cols[4]:
-    with stylable_container(
-        key="metric5",
-        css_styles="""
-        {
-            background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            color: white;
-        }
-        """
-    ):
-        forecast_total = 0
-        for month in st.session_state.adjustment_months:
-            if month in all_df.columns:
-                forecast_total += all_df[month].sum()
-        growth = ((forecast_total - total_sales) / total_sales * 100) if total_sales > 0 else 0
-        st.metric("3M Forecast", f"{forecast_total:,.0f}", f"{growth:+.1f}%")
-        style_metric_cards()
+    st.session_state.adjustment_months = []
 
 # ============================================================================
 # FILTER BAR
 # ============================================================================
 with st.container():
-    st.markdown("### 🔍 Filter Data")
-    
     with stylable_container(
-        key="filter_container",
-        css_styles="""
-        {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            border: 1px solid #E5E7EB;
-            margin-bottom: 1.5rem;
-        }
-        """
+        key="filter_box",
+        css_styles="{background: white; padding: 1rem; border-radius: 12px; border: 1px solid #E5E7EB; margin-bottom: 1rem;}"
     ):
-        col1, col2, col3, col4, col5 = st.columns(5)
+        st.markdown("#### 🔍 Filter SKUs")
+        fc1, fc2, fc3, fc4 = st.columns(4)
         
-        with col1:
-            brand_groups = ["ALL"]
-            if 'Brand_Group' in all_df.columns:
-                brand_groups += sorted(all_df['Brand_Group'].dropna().unique().tolist())
-            selected_brand_group = st.selectbox(
-                "Brand Group",
-                brand_groups,
-                key="filter_brand_group"
-            )
-        
-        with col2:
-            brands = ["ALL"]
-            if 'Brand' in all_df.columns:
-                brands += sorted(all_df['Brand'].dropna().unique().tolist())
-            selected_brand = st.selectbox(
-                "Brand",
-                brands,
-                key="filter_brand"
-            )
-        
-        with col3:
-            sku_tiers = ["ALL"]
-            if 'SKU_Tier' in all_df.columns:
-                sku_tiers += sorted(all_df['SKU_Tier'].dropna().unique().tolist())
-            selected_tier = st.selectbox(
-                "SKU Tier",
-                sku_tiers,
-                key="filter_tier"
-            )
-        
-        with col4:
-            month_cover_filter = st.selectbox(
-                "Month Cover",
-                ["ALL", "< 1.5 months", "1.5 - 3 months", "> 3 months"],
-                key="filter_month_cover"
-            )
-        
-        with col5:
-            st.markdown("&nbsp;")
-            col5a, col5b = st.columns(2)
-            with col5a:
-                if st.button("🔄 Refresh", use_container_width=True):
-                    st.cache_data.clear()
-                    st.rerun()
-            with col5b:
-                if st.button("📊 Reset Filters", type="secondary", use_container_width=True):
-                    for key in ["filter_brand_group", "filter_brand", "filter_tier", "filter_month_cover"]:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    st.rerun()
+        with fc1:
+            brand_groups = ["ALL"] + sorted(all_df['Brand_Group'].dropna().unique().tolist()) if 'Brand_Group' in all_df.columns else ["ALL"]
+            selected_brand_group = st.selectbox("Brand Group", brand_groups)
+            
+        with fc2:
+            brands = ["ALL"] + sorted(all_df['Brand'].dropna().unique().tolist()) if 'Brand' in all_df.columns else ["ALL"]
+            selected_brand = st.selectbox("Brand", brands)
+            
+        with fc3:
+            tiers = ["ALL"] + sorted(all_df['SKU_Tier'].dropna().unique().tolist()) if 'SKU_Tier' in all_df.columns else ["ALL"]
+            selected_tier = st.selectbox("SKU Tier", tiers)
+            
+        with fc4:
+            month_cover_filter = st.selectbox("Month Cover Status", ["ALL", "< 1.5 months", "1.5 - 3 months", "> 3 months"])
 
 # ============================================================================
-# TAB INTERFACE
+# TABS
 # ============================================================================
-tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics Dashboard", "🎯 Focus Areas"])
+tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics", "🎯 Focus Areas"])
 
 # ============================================================================
-# TAB 1: INPUT & ADJUSTMENT (AG-GRID EXACT ORDER)
+# TAB 1: INPUT (AG-GRID)
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 Interactive Forecast Adjustment")
-    st.markdown("*Edit consensus values directly in the table. Column order matches original format.*")
+    st.caption(f"Forecasting for: {', '.join(st.session_state.adjustment_months)}")
     
-    # =================================================================
-    # 1. FILTER LOGIC
-    # =================================================================
+    # 1. Apply Filters
     filtered_df = all_df.copy()
     if selected_brand_group != "ALL" and 'Brand_Group' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Brand_Group'] == selected_brand_group]
@@ -785,8 +355,7 @@ with tab1:
         filtered_df = filtered_df[filtered_df['Brand'] == selected_brand]
     if selected_tier != "ALL" and 'SKU_Tier' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['SKU_Tier'] == selected_tier]
-    
-    # Apply month cover filter
+        
     if month_cover_filter != "ALL" and 'Month_Cover' in filtered_df.columns:
         if month_cover_filter == "< 1.5 months":
             filtered_df = filtered_df[filtered_df['Month_Cover'] < 1.5]
@@ -795,148 +364,104 @@ with tab1:
         elif month_cover_filter == "> 3 months":
             filtered_df = filtered_df[filtered_df['Month_Cover'] > 3]
 
-    st.info(f"📋 Showing **{len(filtered_df)}** SKUs out of **{len(all_df)}** total")
+    st.success(f"📋 Loaded **{len(filtered_df)}** SKUs")
 
-    # =================================================================
-    # 2. DATA PREPARATION (Ensure all columns exist first)
-    # =================================================================
+    # 2. Prepare Data for Grid
     edit_df = filtered_df.copy()
     
-    # A. Pastikan kolom Consensus ada
+    # Init Consensus Cols if missing
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
         if cons_col not in edit_df.columns:
             edit_df[cons_col] = edit_df[month] if month in edit_df.columns else 0
 
-    # B. Hitung persentase untuk display logic
+    # Calculate Pct
     edit_df = calculate_percentage_columns(edit_df)
 
-    # =================================================================
-    # 3. DEFINE COLUMN ORDER (EXACTLY AS ORIGINAL)
-    # =================================================================
-    # Urutan: Metadata -> Sales History -> Calc Metrics -> Original Forecast -> Percentage -> Consensus
-    
+    # 3. Define Column Order (EXACTLY AS REQUESTED)
+    # Metadata -> Sales History -> Metrics -> Original Forecast -> Percentage -> Consensus
     ag_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
     
-    # Add Sales History
-    sales_cols = [col for col in ['Oct-25', 'Nov-25', 'Dec-25'] if col in edit_df.columns]
+    # Sales History (3 bulan terakhir yg ada datanya)
+    sales_cols = [c for c in edit_df.columns if '-' in c and c not in st.session_state.adjustment_months and 'Cons' not in c and '%' not in c][-3:]
     ag_cols.extend(sales_cols)
     
-    # Add Calculated Metrics
-    calc_cols = ['L3M_Avg', 'Stock_Qty', 'Month_Cover']
-    ag_cols.extend([c for c in calc_cols if c in edit_df.columns])
+    # Metrics
+    metrics_cols = ['L3M_Avg', 'Stock_Qty', 'Month_Cover']
+    ag_cols.extend([c for c in metrics_cols if c in edit_df.columns])
     
-    # Add Original Forecast (ROFO)
+    # Original ROFO
     ag_cols.extend([m for m in st.session_state.adjustment_months if m in edit_df.columns])
     
-    # Add Percentage Columns
+    # Percentage
     ag_cols.extend([f'{m}_%' for m in st.session_state.adjustment_months if f'{m}_%' in edit_df.columns])
     
-    # Add Consensus Columns (Editable) - Paling Kanan
+    # Consensus (Input)
     ag_cols.extend([f'Cons_{m}' for m in st.session_state.adjustment_months])
 
-    # Final DataFrame for Grid
     ag_df = edit_df[ag_cols].copy()
 
-    # =================================================================
-    # 4. JS STYLING & GRID CONFIGURATION
-    # =================================================================
-    
-    # JS Code definitions (sama seperti sebelumnya)
+    # 4. JS Styling
     js_month_cover = JsCode("""
     function(params) {
-        if (params.value > 1.5) {
-            return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'};
-        }
+        if (params.value > 1.5) { return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'}; }
         return null;
     }
     """)
-
     js_growth_pct = JsCode("""
     function(params) {
-        if (params.value < 90) {
-            return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'};
-        }
-        if (params.value > 130) {
-            return {'backgroundColor': '#FEE2E2', 'color': '#991B1B', 'fontWeight': 'bold'};
-        }
+        if (params.value < 90) { return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'}; }
+        if (params.value > 130) { return {'backgroundColor': '#FEE2E2', 'color': '#991B1B', 'fontWeight': 'bold'}; }
         return {'color': 'black'};
     }
     """)
-
     js_editable_cell = JsCode("""
     function(params) {
-        return {
-            'backgroundColor': '#EFF6FF',
-            'border': '1px solid #dbeafe',
-            'color': '#1E3A8A',
-            'fontWeight': 'bold'
-        };
+        return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'color': '#1E3A8A', 'fontWeight': 'bold'};
     }
     """)
 
-    # Build Grid Options
+    # 5. Grid Config
     gb = GridOptionsBuilder.from_dataframe(ag_df)
-    
-    # -- General --
     gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False)
     
-    # -- Pinned Columns (Supaya tidak hilang saat scroll ke kanan liat consensus) --
+    # Pin Metadata
     gb.configure_column("sku_code", pinned="left", width=100)
     gb.configure_column("Product_Name", pinned="left", width=220)
     
-    # -- Specific Column Configs --
-    
-    # 1. Numeric Formatting for standard number columns
+    # Numeric Formatting
     for col in ag_cols:
-        if col not in ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'Month_Cover'] and '_%' not in col:
+        if col not in ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier'] and '_%' not in col and col != 'Month_Cover':
              gb.configure_column(col, type=["numericColumn"], valueFormatter="x.toLocaleString()", width=100)
 
-    # 2. Month Cover Styling
-    gb.configure_column("Month_Cover", type=["numericColumn"], precision=1, cellStyle=js_month_cover, width=100)
+    # Style Month Cover
+    gb.configure_column("Month_Cover", type=["numericColumn"], precision=1, cellStyle=js_month_cover, width=90)
 
-    # 3. Percentage Columns Styling
+    # Style Percentage
     for month in st.session_state.adjustment_months:
         pct_col = f'{month}_%'
         if pct_col in ag_cols:
-            gb.configure_column(
-                pct_col,
-                header_name=f"{month} %",
-                type=["numericColumn"],
-                valueFormatter="x.toFixed(1) + '%'",
-                cellStyle=js_growth_pct,
-                width=90
-            )
+            gb.configure_column(pct_col, header_name=f"{month} %", type=["numericColumn"], 
+                              valueFormatter="x.toFixed(1) + '%'", cellStyle=js_growth_pct, width=80)
 
-    # 4. Consensus Columns (EDITABLE) Styling
+    # Style & Configure Consensus (EDITABLE)
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
         if cons_col in ag_cols:
-            gb.configure_column(
-                cons_col, 
-                header_name=f"✏️ {month}", # Pakai emoji biar user tau ini inputan
-                editable=True, 
-                type=["numericColumn"],
-                cellStyle=js_editable_cell,
-                valueFormatter="x.toLocaleString()",
-                width=110,
-                pinned="right" # Opsional: Pin ke kanan biar gampang diakses (Bisa dihapus line ini kalau tidak mau)
-            )
+            gb.configure_column(cons_col, header_name=f"✏️ {month}", editable=True, 
+                              type=["numericColumn"], cellStyle=js_editable_cell, 
+                              valueFormatter="x.toLocaleString()", width=110, pinned="right")
 
     gb.configure_selection('single')
     gridOptions = gb.build()
 
-    # =================================================================
-    # 5. RENDER GRID & LEGEND
-    # =================================================================
-    
-    # Legend simple di atas grid
+    # 6. Render Grid
     st.markdown("""
-    <div style="display: flex; gap: 15px; margin-bottom: 10px; font-size: 0.8rem;">
-        <span style="background:#FCE7F3; padding: 2px 8px; border-radius:4px; color:#BE185D"><b>Cover > 1.5</b></span>
-        <span style="background:#FFEDD5; padding: 2px 8px; border-radius:4px; color:#9A3412"><b>Growth < 90%</b></span>
-        <span style="background:#FEE2E2; padding: 2px 8px; border-radius:4px; color:#991B1B"><b>Growth > 130%</b></span>
-        <span style="background:#EFF6FF; padding: 2px 8px; border-radius:4px; color:#1E3A8A; border:1px solid #bfdbfe"><b>✏️ Editable Consensus</b></span>
+    <div style="margin-bottom:10px; font-size:0.8rem;">
+        <span style="background:#FCE7F3; color:#BE185D; padding:2px 6px; border-radius:4px;"><b>Cover > 1.5</b></span>
+        <span style="background:#FFEDD5; color:#9A3412; padding:2px 6px; border-radius:4px;"><b>Growth < 90%</b></span>
+        <span style="background:#FEE2E2; color:#991B1B; padding:2px 6px; border-radius:4px;"><b>Growth > 130%</b></span>
+        <span style="background:#EFF6FF; color:#1E3A8A; padding:2px 6px; border-radius:4px; border:1px solid #93C5FD;"><b>✏️ Editable</b></span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -946,411 +471,131 @@ with tab1:
         enable_enterprise_modules=False,
         allow_unsafe_jscode=True,
         update_mode=GridUpdateMode.VALUE_CHANGED,
-        height=600,
+        height=550,
         theme='alpine',
-        key='consensus_grid_v2'
+        key='main_grid'
     )
 
     updated_df = pd.DataFrame(grid_response['data'])
 
-    # =================================================================
-    # 6. ACTIONS (SAVE & EXPORT)
-    # =================================================================
+    # 7. Actions
     st.markdown("---")
-    col1, col2, col3 = st.columns(3)
+    ac1, ac2, ac3 = st.columns(3)
     
-    with col1:
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+    with ac1:
+        if st.button("💾 Save to Session", type="primary", use_container_width=True):
             st.session_state.edited_forecast_data = updated_df.copy()
-            
-            # Change Summary logic
-            changes_summary = []
-            for month in st.session_state.adjustment_months:
-                cons_col = f'Cons_{month}'
-                if cons_col in updated_df.columns:
-                    original_val = edit_df[cons_col].sum()
-                    new_val = updated_df[cons_col].sum()
-                    change = new_val - original_val
-                    
-                    changes_summary.append({
-                        'Month': month,
-                        'Original': f"{original_val:,.0f}",
-                        'New': f"{new_val:,.0f}",
-                        'Change': f"{change:+,.0f}"
-                    })
-            
-            st.session_state.forecast_changes = changes_summary
-            st.success("✅ Changes saved successfully!")
-            if changes_summary:
-                st.dataframe(pd.DataFrame(changes_summary), use_container_width=True, hide_index=True)
+            # Calc Changes
+            changes = []
+            for m in st.session_state.adjustment_months:
+                c_col = f'Cons_{m}'
+                if c_col in updated_df.columns:
+                    orig = edit_df[c_col].sum()
+                    new = updated_df[c_col].sum()
+                    changes.append({'Month': m, 'Original': f"{orig:,.0f}", 'New': f"{new:,.0f}", 'Diff': f"{new-orig:,.0f}"})
+            st.session_state.changes_log = changes
+            st.success("✅ Saved locally!")
+            if changes: st.dataframe(pd.DataFrame(changes), hide_index=True)
 
-    with col2:
-        if st.button("📤 Export CSV", use_container_width=True):
-            csv = updated_df.to_csv(index=False)
-            st.download_button("⬇️ Download", csv, f"forecast_export_{datetime.now().date()}.csv", "text/csv")
-            
-    with col3:
-        # Live counter
-        current_total = 0
+    with ac2:
+        if st.button("☁️ Push to Google Sheets", type="secondary", use_container_width=True, help="Overwrites 'consensus_rofo' sheet"):
+            if 'edited_forecast_data' not in st.session_state:
+                st.warning("⚠️ Save to Session first!")
+            else:
+                with st.spinner("🚀 Uploading to GSheet..."):
+                    # Prepare clean data for upload
+                    final_data = st.session_state.edited_forecast_data.copy()
+                    
+                    # Columns to keep: Metadata + Consensus
+                    keep_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier'] + [f'Cons_{m}' for m in st.session_state.adjustment_months]
+                    
+                    # Optional: Add timestamp col
+                    final_data['Last_Update'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+                    keep_cols.append('Last_Update')
+                    
+                    upload_df = final_data[keep_cols]
+                    
+                    gs = GSheetConnector()
+                    success, msg = gs.save_data(upload_df, "consensus_rofo")
+                    if success:
+                        st.balloons()
+                        st.success("✅ Data successfully pushed to Google Sheets!")
+                    else:
+                        st.error(f"❌ Upload failed: {msg}")
+
+    with ac3:
+        # Live Total
+        total_fc = 0
         for m in st.session_state.adjustment_months:
             if f'Cons_{m}' in updated_df.columns:
-                current_total += updated_df[f'Cons_{m}'].sum()
-        st.metric("Live Total Consensus", f"{current_total:,.0f}")
+                total_fc += updated_df[f'Cons_{m}'].sum()
+        st.metric("Live Forecast Total", f"{total_fc:,.0f}")
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD
+# TAB 2: ANALYTICS (SIMPLE VIEW)
 # ============================================================================
 with tab2:
-    st.markdown("### 📈 Consensus Results & Projections")
+    st.markdown("### 📈 Projection Analysis")
     
-    # Gunakan edited consensus data jika ada
-    results_df = all_df.copy()
+    # Use edited data if available, else original
+    viz_df = updated_df if not updated_df.empty else all_df
     
-    if 'edited_forecast_data' in st.session_state:
-        # Map edited data back ke results_df
-        edited_data = st.session_state.edited_forecast_data
-        
-        for month in st.session_state.adjustment_months:
-            cons_col = f'Cons_{month}'
-            if cons_col in edited_data.columns:
-                # Create mapping dari sku_code ke consensus value
-                consensus_map = dict(zip(edited_data['sku_code'], edited_data[cons_col]))
-                results_df[cons_col] = results_df['sku_code'].map(consensus_map).fillna(results_df[month])
-    else:
-        # Initialize consensus columns as same as ROFO
-        for month in st.session_state.adjustment_months:
-            cons_col = f'Cons_{month}'
-            if month in results_df.columns:
-                results_df[cons_col] = results_df[month]
-    
-    # Summary untuk Tab 2
-    st.markdown("#### 📊 Overall Summary")
-    metric_cols2 = st.columns(4)
-    
-    with metric_cols2[0]:
-        total_all_skus = len(results_df)
-        st.metric("Total SKUs", f"{total_all_skus:,}")
-    
-    with metric_cols2[1]:
-        if 'L3M_Avg' in results_df.columns:
-            total_all_l3m = results_df['L3M_Avg'].sum()
-        else:
-            total_all_l3m = 0
-        st.metric("Total L3M Sales", f"{total_all_l3m:,.0f}")
-    
-    with metric_cols2[2]:
-        if 'Stock_Qty' in results_df.columns:
-            total_all_stock = results_df['Stock_Qty'].sum()
-        else:
-            total_all_stock = 0
-        st.metric("Total Stock", f"{total_all_stock:,}")
-    
-    with metric_cols2[3]:
-        if st.session_state.adjustment_months:
-            month = st.session_state.adjustment_months[0]
-            cons_col = f'Cons_{month}'
-            if cons_col in results_df.columns:
-                total_consensus = results_df[cons_col].sum()
-                total_baseline = results_df['L3M_Avg'].sum() if 'L3M_Avg' in results_df.columns else 0
-                total_growth = ((total_consensus - total_baseline) / total_baseline * 100).round(1) if total_baseline > 0 else 0
-                st.metric(f"Total {month} Growth", f"{total_growth:+.1f}%")
-    
-    # Show changes summary jika ada
-    if 'forecast_changes' in st.session_state:
-        st.markdown("---")
-        st.markdown("#### 📝 Consensus Changes Summary")
-        
-        changes_df = pd.DataFrame(st.session_state.forecast_changes)
-        
-        # Display
-        st.dataframe(changes_df[['Month', 'Original', 'New', 'Change', 'Change %']].rename(
-            columns={'Month': 'Month'}
-        ), use_container_width=True, hide_index=True)
-    
-    # =================================================================
-    # VISUAL ANALYTICS
-    # =================================================================
-    st.markdown("---")
-    st.markdown("### 📊 Visual Analytics")
-    
-    # Prepare data untuk charts
+    # Chart 1: Monthly Trend
     chart_data = []
+    # Add History Average
+    if 'L3M_Avg' in viz_df.columns:
+        chart_data.append({'Type': 'History (Avg)', 'Period': 'L3M', 'Value': viz_df['L3M_Avg'].sum()})
     
-    # Actual sales data
-    if 'L3M_Avg' in results_df.columns:
-        chart_data.append({
-            'Period': 'L3M Avg',
-            'Value': results_df['L3M_Avg'].sum() / 3,  # Monthly average
-            'Type': 'Actual'
-        })
+    # Add Consensus
+    for m in st.session_state.adjustment_months:
+        c_col = f'Cons_{m}'
+        val = viz_df[c_col].sum() if c_col in viz_df.columns else 0
+        chart_data.append({'Type': 'Forecast', 'Period': m, 'Value': val})
+        
+    chart_df = pd.DataFrame(chart_data)
     
-    # Consensus data
-    for month in st.session_state.adjustment_months:
-        cons_col = f'Cons_{month}'
-        if cons_col in results_df.columns:
-            chart_data.append({
-                'Period': month,
-                'Value': results_df[cons_col].sum(),
-                'Type': 'Consensus'
-            })
-    
-    if chart_data:
-        chart_df = pd.DataFrame(chart_data)
+    col_chart1, col_chart2 = st.columns(2)
+    with col_chart1:
+        fig = px.bar(chart_df, x='Period', y='Value', color='Type', title="Total Volume Trend",
+                     color_discrete_map={'History (Avg)': '#9CA3AF', 'Forecast': '#3B82F6'})
+        st.plotly_chart(fig, use_container_width=True)
         
-        # Chart 1: Bar chart
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 📈 Monthly Volume Comparison")
-            
-            fig = px.bar(
-                chart_df,
-                x='Period',
-                y='Value',
-                color='Type',
-                title="Monthly Sales vs Consensus",
-                color_discrete_map={'Actual': '#10B981', 'Consensus': '#3B82F6'}
-            )
-            
-            fig.update_layout(
-                height=400,
-                showlegend=True,
-                plot_bgcolor='white',
-                yaxis=dict(
-                    title="Volume (units)", 
-                    gridcolor='#E5E7EB',
-                    tickformat=',.0f'
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.markdown("#### 📊 Brand Distribution")
-            
-            if 'Brand' in results_df.columns:
-                # Aggregate by brand
-                brand_data = []
-                for brand in results_df['Brand'].unique():
-                    brand_total = 0
-                    for month in st.session_state.adjustment_months:
-                        cons_col = f'Cons_{month}'
-                        if cons_col in results_df.columns:
-                            brand_total += results_df.loc[results_df['Brand'] == brand, cons_col].sum()
-                    
-                    brand_data.append({
-                        'Brand': brand,
-                        'Total': brand_total
-                    })
-                
-                brand_df = pd.DataFrame(brand_data)
-                brand_df = brand_df.sort_values('Total', ascending=False).head(10)
-                
-                fig = px.pie(
-                    brand_df,
-                    values='Total',
-                    names='Brand',
-                    title="Top 10 Brands by Consensus Volume",
-                    hole=0.4
-                )
-                
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+    with col_chart2:
+        if 'Brand' in viz_df.columns:
+            brand_agg = viz_df.groupby('Brand')[[f'Cons_{m}' for m in st.session_state.adjustment_months]].sum().sum(axis=1).reset_index(name='Total')
+            fig2 = px.pie(brand_agg, values='Total', names='Brand', title="Volume Share by Brand", hole=0.4)
+            st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================================================
 # TAB 3: FOCUS AREAS
 # ============================================================================
 with tab3:
-    st.markdown("### 🎯 Focus Areas & Action Items")
+    st.markdown("### ⚠️ Action Items")
     
-    # Gunakan edited data jika ada
-    focus_df = all_df.copy()
+    focus_df = updated_df if not updated_df.empty else all_df
     
-    if 'edited_forecast_data' in st.session_state:
-        # Update dengan edited data
-        edited_data = st.session_state.edited_forecast_data
-        for month in st.session_state.adjustment_months:
-            cons_col = f'Cons_{month}'
-            if cons_col in edited_data.columns:
-                focus_df[cons_col] = focus_df['sku_code'].map(
-                    dict(zip(edited_data['sku_code'], edited_data[cons_col]))
-                ).fillna(focus_df[month])
+    c_alert1, c_alert2 = st.columns(2)
     
-    # Generate alerts
-    alerts_data = {}
+    with c_alert1:
+        if 'Month_Cover' in focus_df.columns:
+            high_stock = focus_df[focus_df['Month_Cover'] > 1.5]
+            with stylable_container(key="alert_stock", css_styles="{border-left: 5px solid #EF4444; background: white; padding: 1rem; border-radius: 8px;}"):
+                st.markdown(f"#### 🛑 High Stock ({len(high_stock)})")
+                st.caption("Month Cover > 1.5")
+                if not high_stock.empty:
+                    st.dataframe(high_stock[['sku_code', 'Product_Name', 'Month_Cover', 'Stock_Qty']].head(), hide_index=True)
     
-    if 'Month_Cover' in focus_df.columns:
-        high_cover_skus = focus_df[focus_df['Month_Cover'] > 1.5].sort_values('Month_Cover', ascending=False)
-        alerts_data['high_cover'] = {
-            'count': len(high_cover_skus),
-            'data': high_cover_skus,
-            'title': '⚠️ High Month Cover',
-            'subtitle': 'Month Cover > 1.5',
-            'color': '#EF4444'
-        }
-    
-    if 'L3M_Avg' in focus_df.columns and 'Feb-26' in focus_df.columns:
-        low_growth_mask = (focus_df['Feb-26'] / focus_df['L3M_Avg'].replace(0, np.nan) * 100) < 90
-        low_growth_skus = focus_df[low_growth_mask].sort_values('L3M_Avg')
-        alerts_data['low_growth'] = {
-            'count': len(low_growth_skus),
-            'data': low_growth_skus,
-            'title': '📉 Low Growth SKUs',
-            'subtitle': '<90% growth',
-            'color': '#F59E0B'
-        }
-        
-        high_growth_mask = (focus_df['Feb-26'] / focus_df['L3M_Avg'].replace(0, np.nan) * 100) > 130
-        high_growth_skus = focus_df[high_growth_mask].sort_values('Feb-26', ascending=False)
-        alerts_data['high_growth'] = {
-            'count': len(high_growth_skus),
-            'data': high_growth_skus,
-            'title': '📈 High Growth SKUs',
-            'subtitle': '>130% growth',
-            'color': '#10B981'
-        }
-    
-    if 'Stock_Qty' in focus_df.columns and 'L3M_Avg' in focus_df.columns:
-        low_stock_skus = focus_df[focus_df['Stock_Qty'] < focus_df['L3M_Avg']].sort_values('Stock_Qty')
-        alerts_data['low_stock'] = {
-            'count': len(low_stock_skus),
-            'data': low_stock_skus,
-            'title': '📦 Low Stock SKUs',
-            'subtitle': '<1 month cover',
-            'color': '#8B5CF6'
-        }
-    
-    # Display alerts in grid
-    if alerts_data:
-        # Row 1
-        cols = st.columns(2)
-        alert_keys = list(alerts_data.keys())
-        
-        for i, alert_key in enumerate(alert_keys[:2]):
-            with cols[i]:
-                alert = alerts_data[alert_key]
-                with stylable_container(
-                    key=f"alert_{alert_key}",
-                    css_styles=f"""
-                    {{
-                        background: white;
-                        padding: 1.5rem;
-                        border-radius: 12px;
-                        border-left: 6px solid {alert['color']};
-                        margin-bottom: 1rem;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-                    }}
-                    """
-                ):
-                    st.markdown(f"#### {alert['title']}")
-                    st.metric("SKUs", f"{alert['count']:,}", alert['subtitle'])
-                    
-                    if alert['count'] > 0:
-                        with st.expander("View SKUs"):
-                            if 'sku_code' in alert['data'].columns:
-                                display_cols = ['sku_code', 'Product_Name', 'Brand']
-                                if 'Month_Cover' in alert['data'].columns:
-                                    display_cols.append('Month_Cover')
-                                if 'L3M_Avg' in alert['data'].columns and 'Feb-26' in alert['data'].columns:
-                                    display_cols.extend(['L3M_Avg', 'Feb-26'])
-                                if 'Stock_Qty' in alert['data'].columns:
-                                    display_cols.append('Stock_Qty')
-                                
-                                st.dataframe(alert['data'][display_cols].head(10))
-        
-        # Row 2
-        if len(alert_keys) > 2:
-            cols2 = st.columns(2)
-            for i, alert_key in enumerate(alert_keys[2:4]):
-                with cols2[i]:
-                    alert = alerts_data[alert_key]
-                    with stylable_container(
-                        key=f"alert_{alert_key}_2",
-                        css_styles=f"""
-                        {{
-                            background: white;
-                            padding: 1.5rem;
-                            border-radius: 12px;
-                            border-left: 6px solid {alert['color']};
-                            margin-bottom: 1rem;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-                        }}
-                        """
-                    ):
-                        st.markdown(f"#### {alert['title']}")
-                        st.metric("SKUs", f"{alert['count']:,}", alert['subtitle'])
-                        
-                        if alert['count'] > 0:
-                            with st.expander("View SKUs"):
-                                if 'sku_code' in alert['data'].columns:
-                                    display_cols = ['sku_code', 'Product_Name', 'Brand']
-                                    if 'Month_Cover' in alert['data'].columns:
-                                        display_cols.append('Month_Cover')
-                                    if 'L3M_Avg' in alert['data'].columns and 'Feb-26' in alert['data'].columns:
-                                        display_cols.extend(['L3M_Avg', 'Feb-26'])
-                                    if 'Stock_Qty' in alert['data'].columns:
-                                        display_cols.append('Stock_Qty')
-                                    
-                                    st.dataframe(alert['data'][display_cols].head(10))
-    else:
-        st.info("No alert data available.")
-
-# ============================================================================
-# FOOTER
-# ============================================================================
-st.markdown("---")
-footer_cols = st.columns([2, 1, 1])
-
-with footer_cols[0]:
-    st.markdown(f"""
-    <div style="color: #6B7280; font-size: 0.9rem;">
-        <p>📊 <strong>ERHA S&OP Dashboard v2.0</strong></p>
-        <p>For internal use only. Data loaded from Google Sheets.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-with footer_cols[1]:
-    st.markdown(f"""
-    <div style="color: #6B7280; font-size: 0.9rem; text-align: center;">
-        <p><strong>Meeting</strong></p>
-        <p>{meeting_date}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-with footer_cols[2]:
-    st.markdown(f"""
-    <div style="color: #6B7280; font-size: 0.9rem; text-align: center;">
-        <p><strong>Last Updated</strong></p>
-        <p>{datetime.now().strftime('%H:%M:%S')}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ============================================================================
-# SIDEBAR (OPTIONAL)
-# ============================================================================
-with st.sidebar:
-    st.markdown("### ⚙️ Settings")
-    
-    # Auto-refresh
-    auto_refresh = st.checkbox("Auto-refresh data", value=False)
-    
-    # Data range
-    st.markdown("---")
-    st.markdown("#### 📅 Data Range")
-    
-    start_date = st.date_input("From", value=datetime(2025, 10, 1).date())
-    end_date = st.date_input("To", value=datetime(2026, 4, 30).date())
-    
-    # Export options
-    st.markdown("---")
-    st.markdown("#### 📤 Quick Export")
-    
-    if st.button("Export Current View", use_container_width=True):
-        st.info("Use the export buttons in Tab 1")
-    
-    # Debug info
-    st.markdown("---")
-    with st.expander("Debug Info"):
-        st.write(f"Data shape: {all_df.shape}")
-        st.write(f"SKUs loaded: {len(all_df)}")
-        st.write(f"Adjustment months: {st.session_state.adjustment_months}")
+    with c_alert2:
+        if 'L3M_Avg' in focus_df.columns:
+            # Check growth on first month of forecast
+            first_m = st.session_state.adjustment_months[0]
+            cons_col = f'Cons_{first_m}'
+            if cons_col in focus_df.columns:
+                focus_df['Growth_Check'] = (focus_df[cons_col] / focus_df['L3M_Avg'].replace(0, 1) * 100)
+                low_growth = focus_df[focus_df['Growth_Check'] < 90]
+                
+                with stylable_container(key="alert_growth", css_styles="{border-left: 5px solid #F59E0B; background: white; padding: 1rem; border-radius: 8px;}"):
+                    st.markdown(f"#### 📉 Low Growth ({len(low_growth)})")
+                    st.caption(f"{first_m} vs L3M < 90%")
+                    if not low_growth.empty:
+                        st.dataframe(low_growth[['sku_code', 'Product_Name', 'L3M_Avg', cons_col, 'Growth_Check']].head(), hide_index=True)
