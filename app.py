@@ -16,11 +16,12 @@ from streamlit_extras.stylable_container import stylable_container
 # ============================================================================
 # PAGE CONFIG
 # ============================================================================
+
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V5.5",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="ERHA S&OP Dashboard V5.5",  # <-- Pastikan semua spasi adalah spasi biasa
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # ============================================================================
