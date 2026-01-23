@@ -7,6 +7,7 @@ import plotly.express as px
 from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
+import re
 from dateutil.relativedelta import relativedelta
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode, JsCode
 from streamlit_extras.metric_cards import style_metric_cards
@@ -16,7 +17,7 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V5.1",
+    page_title="ERHA S&OP Dashboard V5.2",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -73,7 +74,9 @@ class GSheetConnector:
     def get_sheet_data(self, sheet_name):
         try:
             worksheet = self.sheet.worksheet(sheet_name)
-            data = worksheet.get_all_records()
+            # get_all_records defaultnya convert numeric. 
+            # Kita paksa ambil value render option formatted agar tanggal konsisten
+            data = worksheet.get_all_records(value_render_option='FORMATTED_VALUE') 
             return pd.DataFrame(data)
         except:
             return pd.DataFrame()
@@ -94,7 +97,49 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# 2. DATA LOADER (FIXED FLOOR PRICE & CLEANING)
+# HELPER FUNCTIONS (FIXING DATA ISSUES)
+# ============================================================================
+
+def clean_currency(val):
+    """
+    Membersihkan format uang: 95,000 -> 95000 | Rp 95.000 -> 95000
+    """
+    if pd.isna(val) or val == '':
+        return 0
+    
+    val_str = str(val)
+    # Hapus Rp, spasi, dan koma (thousand separator US format)
+    # Hapus titik jika itu pemisah ribuan (Format ID), tapi hati-hati desimal
+    # Asumsi data integer (floor price), jadi aman hapus , dan .
+    clean_str = re.sub(r'[Rp\s,]', '', val_str) 
+    
+    try:
+        return float(clean_str)
+    except:
+        return 0
+
+def find_matching_column(target_month, available_columns):
+    """
+    Mencari nama kolom di GSheet yang 'mirip' dengan target bulan.
+    Target: 'May-26'
+    Matches: 'May-26', 'May 26', 'May_26', '01-May-2026'
+    """
+    # 1. Cek Exact Match
+    if target_month in available_columns:
+        return target_month
+        
+    # 2. Cek Normalized Match (Lower, no space, no dash)
+    target_clean = target_month.lower().replace('-', '').replace(' ', '').replace('_', '')
+    
+    for col in available_columns:
+        col_clean = str(col).lower().replace('-', '').replace(' ', '').replace('_', '')
+        if target_clean in col_clean: # Fuzzy contains
+            return col
+            
+    return None
+
+# ============================================================================
+# 2. DATA LOADER
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data_v5(start_date_str):
@@ -104,95 +149,119 @@ def load_data_v5(start_date_str):
         rofo_df = gs.get_sheet_data("rofo_current")
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # 1. Horizon
-        start_date = datetime.strptime(start_date_str, "%b-%y")
-        horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
-        st.session_state.horizon_months = horizon_months
-        
-        # 2. Clean Column Names
+        # 1. Clean Column Names (Basic)
         for df in [sales_df, rofo_df, stock_df]:
             if not df.empty:
-                df.columns = [c.strip().replace(' ', '_') for c in df.columns]
+                # Strip only whitespace
+                df.columns = [str(c).strip() for c in df.columns]
+                
+        # Simpan raw columns untuk debug
+        st.session_state.debug_rofo_cols = rofo_df.columns.tolist() if not rofo_df.empty else []
 
         if sales_df.empty or rofo_df.empty:
             return pd.DataFrame()
 
-        # === FIX: CLEAN FLOOR PRICE ===
-        # Hapus 'Rp', titik (ribuan), spasi
-        if 'floor_price' in rofo_df.columns:
-            # Convert ke string dulu, lalu regex replace
-            rofo_df['floor_price'] = rofo_df['floor_price'].astype(str).str.replace(r'[Rp\s.]', '', regex=True)
-            # Convert ke numeric, error jadi 0
-            rofo_df['floor_price'] = pd.to_numeric(rofo_df['floor_price'], errors='coerce').fillna(0)
+        # 2. Horizon
+        start_date = datetime.strptime(start_date_str, "%b-%y")
+        horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+        st.session_state.horizon_months = horizon_months
         
-        # 3. Merge Logic
+        # 3. FIX FLOOR PRICE
+        if 'floor_price' in rofo_df.columns:
+            rofo_df['floor_price'] = rofo_df['floor_price'].apply(clean_currency)
+        else:
+            # Coba cari kolom yg mirip 'floor'
+            floor_cols = [c for c in rofo_df.columns if 'floor' in c.lower()]
+            if floor_cols:
+                rofo_df.rename(columns={floor_cols[0]: 'floor_price'}, inplace=True)
+                rofo_df['floor_price'] = rofo_df['floor_price'].apply(clean_currency)
+
+        # 4. Merge Keys Logic
+        # Standardize key columns to underscores for merging
+        key_map = {
+            'Product Name': 'Product_Name',
+            'Brand Group': 'Brand_Group',
+            'SKU Tier': 'SKU_Tier'
+        }
+        sales_df.rename(columns=key_map, inplace=True)
+        rofo_df.rename(columns=key_map, inplace=True)
+        
         possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
         valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # 4. Sales
-        sales_date_cols = [c for c in sales_df.columns if '-' in c]
+        # 5. Prepare Sales
+        sales_date_cols = [c for c in sales_df.columns if '-' in c] # Simple assumption
         l3m_cols = sales_date_cols[-3:] if len(sales_date_cols) >= 3 else sales_date_cols
         
         if l3m_cols:
-            sales_df['L3M_Avg'] = sales_df[l3m_cols].mean(axis=1).round(0)
+            sales_df['L3M_Avg'] = sales_df[l3m_cols].replace('', 0).astype(float).mean(axis=1).round(0)
         else:
             sales_df['L3M_Avg'] = 0
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
         
-        # 5. ROFO
-        rofo_cols = valid_keys.copy()
-        extra_cols = ['Channel', 'Product_Focus', 'floor_price']
+        # 6. Prepare ROFO (Smart Column Picking)
+        rofo_cols_to_fetch = valid_keys.copy()
         
-        for col in extra_cols:
-            if col in rofo_df.columns and col not in rofo_cols:
-                rofo_cols.append(col)
-            
-        # Ambil kolom bulan horizon
+        # Extra cols
+        for extra in ['Channel', 'Product_Focus', 'floor_price']:
+            if extra in rofo_df.columns and extra not in rofo_cols_to_fetch:
+                rofo_cols_to_fetch.append(extra)
+        
+        # Map Horizon Months to Actual Columns
+        month_mapping = {} # Key: May-26 -> Value: May 26 (Real col name)
         missing_months = []
+        
         for m in horizon_months:
-            if m in rofo_df.columns:
-                rofo_cols.append(m)
+            real_col = find_matching_column(m, rofo_df.columns)
+            if real_col:
+                month_mapping[m] = real_col
+                if real_col not in rofo_cols_to_fetch:
+                    rofo_cols_to_fetch.append(real_col)
             else:
                 missing_months.append(m)
         
-        if missing_months:
-            # Simpan info bulan yg hilang buat ditampilkan nanti (bukan error, cuma info)
-            st.session_state.missing_rofo = missing_months
-        else:
-            st.session_state.missing_rofo = []
+        st.session_state.missing_months = missing_months # For Debug UI
         
-        rofo_subset = rofo_df[rofo_cols].copy()
+        rofo_subset = rofo_df[rofo_cols_to_fetch].copy()
         
-        # 6. Merge
+        # Rename actual columns back to standard 'May-26' format for consistency
+        inv_map = {v: k for k, v in month_mapping.items()}
+        rofo_subset.rename(columns=inv_map, inplace=True)
+        
+        # 7. Merge
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Clean Extra Cols
+        # Fill missing data
         if 'Product_Focus' not in merged_df.columns: merged_df['Product_Focus'] = ""
         else: merged_df['Product_Focus'] = merged_df['Product_Focus'].fillna("")
         
         if 'floor_price' not in merged_df.columns: merged_df['floor_price'] = 0
         else: merged_df['floor_price'] = merged_df['floor_price'].fillna(0)
-
-        # Isi 0 untuk bulan yg tidak ada di GSheet
+        
+        # Fill numeric 0 for all horizon months
         for m in horizon_months:
             if m not in merged_df.columns:
                 merged_df[m] = 0
-                
-        # 7. Stock
+            else:
+                # Clean numeric just in case there are commas in volume too
+                merged_df[m] = merged_df[m].apply(clean_currency)
+
+        # 8. Stock Logic
         if not stock_df.empty and 'sku_code' in stock_df.columns:
             stock_col = 'Stock_Qty' if 'Stock_Qty' in stock_df.columns else stock_df.columns[1]
             merged_df = pd.merge(merged_df, stock_df[['sku_code', stock_col]], on='sku_code', how='left')
             merged_df.rename(columns={stock_col: 'Stock_Qty'}, inplace=True)
         else:
             merged_df['Stock_Qty'] = 0
-        merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
+            
+        merged_df['Stock_Qty'] = merged_df['Stock_Qty'].apply(clean_currency) # Clean Stock too
 
-        # 8. Metrics
+        # 9. Metrics
         merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg'].replace(0, 1)).round(1)
         merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
         
-        # 9. Init Consensus (Only M1-M3)
+        # 10. Init Consensus M1-M3
         cycle_months = horizon_months[:3]
         for m in cycle_months:
             merged_df[f'Cons_{m}'] = merged_df[m]
@@ -201,6 +270,8 @@ def load_data_v5(start_date_str):
 
     except Exception as e:
         st.error(f"Error Loading: {str(e)}")
+        # Debug trace
+        st.write("Traceback:", str(e))
         return pd.DataFrame()
 
 def calculate_pct(df, months):
@@ -238,13 +309,21 @@ with st.sidebar:
     if st.button("🔄 Reload Data"):
         st.cache_data.clear()
         st.rerun()
+        
+    # DEBUG EXPANDER
+    with st.expander("🕵️ Data Debugger"):
+        if 'missing_months' in st.session_state and st.session_state.missing_months:
+            st.error(f"❌ Missing Columns in ROFO:\n{st.session_state.missing_months}")
+            st.write("Available Columns:", st.session_state.get('debug_rofo_cols', []))
+        else:
+            st.success("✅ All 12-Month Columns Found!")
 
 # ============================================================================
 # MAIN
 # ============================================================================
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V5.1</h2>
+    <h2>📊 ERHA S&OP Dashboard V5.2 (Fixed)</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
@@ -366,13 +445,8 @@ with tab1:
 with tab2:
     st.markdown("### 📈 12-Month Projection (Volume & Value)")
     
-    if st.session_state.missing_rofo:
-        st.info(f"ℹ️ Note: Columns {st.session_state.missing_rofo} not found in GSheet, data filled with 0.")
-    
     base_df = updated_df if not updated_df.empty else filtered_df
-    
-    if base_df.empty:
-        st.stop()
+    if base_df.empty: st.stop()
         
     horizon = st.session_state.horizon_months
     calc_df = base_df.copy()
@@ -380,38 +454,32 @@ with tab2:
     total_qty_cols = []
     total_val_cols = []
     
+    # Calculate M4-M12
     for m in horizon:
-        qty_col_name = f'Final_Qty_{m}'
-        val_col_name = f'Final_Val_{m}'
+        qty_col = f'Final_Qty_{m}'
+        val_col = f'Final_Val_{m}'
         
-        # Source (Consensus for first 3, ROFO for rest)
+        # Logic Hybrid: M1-M3 pakai Cons, sisanya Raw GSheet
         if m in cycle_months: source_col = f'Cons_{m}'
         else: source_col = m
             
         if source_col in calc_df.columns:
-            calc_df[qty_col_name] = calc_df[source_col].fillna(0)
+            calc_df[qty_col] = calc_df[source_col].fillna(0)
         else:
-            calc_df[qty_col_name] = 0
+            calc_df[qty_col] = 0
             
-        # Calc Value
-        if 'floor_price' in calc_df.columns:
-            calc_df[val_col_name] = calc_df[qty_col_name] * calc_df['floor_price']
-        else:
-            calc_df[val_col_name] = 0
-            
-        total_qty_cols.append(qty_col_name)
-        total_val_cols.append(val_col_name)
+        calc_df[val_col] = calc_df[qty_col] * calc_df['floor_price']
+        
+        total_qty_cols.append(qty_col)
+        total_val_cols.append(val_col)
 
     grand_total_qty = calc_df[total_qty_cols].sum().sum()
     grand_total_val = calc_df[total_val_cols].sum().sum()
     
     with stylable_container(key="kpi_v5", css_styles="{background-color:#F1F5F9; padding:20px; border-radius:10px; border:1px solid #CBD5E1;}"):
         k1, k2 = st.columns(2)
-        with k1:
-            st.metric("12-Month Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
-        with k2:
-            val_in_bio = grand_total_val / 1_000_000_000
-            st.metric("12-Month Revenue", f"Rp {val_in_bio:,.2f} M", "Estimated @ Floor Price")
+        with k1: st.metric("12-Month Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
+        with k2: st.metric("12-Month Revenue", f"Rp {grand_total_val/1_000_000_000:,.2f} M", "Estimated @ Floor Price")
             
     st.markdown("---")
 
