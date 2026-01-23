@@ -769,11 +769,11 @@ with st.container():
 tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics Dashboard", "🎯 Focus Areas"])
 
 # ============================================================================
-# TAB 1: INPUT & ADJUSTMENT (SINGLE INTERACTIVE TABLE)
+# TAB 1: INPUT & ADJUSTMENT (AG-GRID EXACT ORDER)
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 Interactive Forecast Adjustment")
-    st.markdown("*Edit consensus values directly in the table below. Cells are colored based on performance metrics.*")
+    st.markdown("*Edit consensus values directly in the table. Column order matches original format.*")
     
     # =================================================================
     # 1. FILTER LOGIC
@@ -798,75 +798,60 @@ with tab1:
     st.info(f"📋 Showing **{len(filtered_df)}** SKUs out of **{len(all_df)}** total")
 
     # =================================================================
-    # 2. LEGEND
-    # =================================================================
-    st.markdown("""
-    <div class="color-legend">
-        <div class="legend-item">
-            <div class="color-box" style="background-color: #FCE7F3; border-left: 3px solid #BE185D;"></div>
-            <span class="legend-text">Month Cover > 1.5</span>
-        </div>
-        <div class="legend-item">
-            <div class="color-box" style="background-color: #FFEDD5; border-left: 3px solid #9A3412;"></div>
-            <span class="legend-text">Growth < 90%</span>
-        </div>
-        <div class="legend-item">
-            <div class="color-box" style="background-color: #FEE2E2; border-left: 3px solid #991B1B;"></div>
-            <span class="legend-text">Growth > 130%</span>
-        </div>
-        <div class="legend-item">
-            <div class="color-box" style="background-color: #EFF6FF; border: 1px solid #3B82F6;"></div>
-            <span class="legend-text">Editable Cells</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # =================================================================
-    # 3. PREPARE DATA FOR AG-GRID
+    # 2. DATA PREPARATION (Ensure all columns exist first)
     # =================================================================
     edit_df = filtered_df.copy()
     
-    # Insert Consensus Columns if not exist
+    # A. Pastikan kolom Consensus ada
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
         if cons_col not in edit_df.columns:
             edit_df[cons_col] = edit_df[month] if month in edit_df.columns else 0
 
-    # Calculate percentages for logic display
+    # B. Hitung persentase untuk display logic
     edit_df = calculate_percentage_columns(edit_df)
-    
-    # Select Columns to Display
-    sales_cols = [col for col in ['Oct-25', 'Nov-25', 'Dec-25'] if col in edit_df.columns]
-    
-    # Base columns
-    ag_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier'] + sales_cols + ['L3M_Avg', 'Stock_Qty', 'Month_Cover']
-    
-    # Dynamic Columns (Consensus & Percentage)
-    for month in st.session_state.adjustment_months:
-        ag_cols.append(f'Cons_{month}') # Editable
-        ag_cols.append(f'{month}_%')    # Calculated/Readonly
 
+    # =================================================================
+    # 3. DEFINE COLUMN ORDER (EXACTLY AS ORIGINAL)
+    # =================================================================
+    # Urutan: Metadata -> Sales History -> Calc Metrics -> Original Forecast -> Percentage -> Consensus
+    
+    ag_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    
+    # Add Sales History
+    sales_cols = [col for col in ['Oct-25', 'Nov-25', 'Dec-25'] if col in edit_df.columns]
+    ag_cols.extend(sales_cols)
+    
+    # Add Calculated Metrics
+    calc_cols = ['L3M_Avg', 'Stock_Qty', 'Month_Cover']
+    ag_cols.extend([c for c in calc_cols if c in edit_df.columns])
+    
+    # Add Original Forecast (ROFO)
+    ag_cols.extend([m for m in st.session_state.adjustment_months if m in edit_df.columns])
+    
+    # Add Percentage Columns
+    ag_cols.extend([f'{m}_%' for m in st.session_state.adjustment_months if f'{m}_%' in edit_df.columns])
+    
+    # Add Consensus Columns (Editable) - Paling Kanan
+    ag_cols.extend([f'Cons_{m}' for m in st.session_state.adjustment_months])
+
+    # Final DataFrame for Grid
     ag_df = edit_df[ag_cols].copy()
 
     # =================================================================
-    # 4. CONFIGURE AG-GRID LOGIC (JS CODE)
+    # 4. JS STYLING & GRID CONFIGURATION
     # =================================================================
     
-    # JS: Styling untuk Month Cover (Pink jika > 1.5)
+    # JS Code definitions (sama seperti sebelumnya)
     js_month_cover = JsCode("""
     function(params) {
         if (params.value > 1.5) {
-            return {
-                'backgroundColor': '#FCE7F3', 
-                'color': '#BE185D',
-                'fontWeight': 'bold'
-            };
+            return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'};
         }
         return null;
     }
     """)
 
-    # JS: Styling untuk Growth Percentage (Merah/Orange)
     js_growth_pct = JsCode("""
     function(params) {
         if (params.value < 90) {
@@ -879,7 +864,6 @@ with tab1:
     }
     """)
 
-    # JS: Styling untuk Editable Consensus Cells (Biru muda biar tau bisa diedit)
     js_editable_cell = JsCode("""
     function(params) {
         return {
@@ -891,105 +875,101 @@ with tab1:
     }
     """)
 
-    # =================================================================
-    # 5. BUILD GRID OPTIONS
-    # =================================================================
+    # Build Grid Options
     gb = GridOptionsBuilder.from_dataframe(ag_df)
     
-    # -- General Settings --
-    gb.configure_default_column(
-        resizable=True, 
-        filterable=True, 
-        sortable=True,
-        editable=False, # Default read-only
-    )
+    # -- General --
+    gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False)
     
-    # -- Pinned Columns (Sticky Left) --
+    # -- Pinned Columns (Supaya tidak hilang saat scroll ke kanan liat consensus) --
     gb.configure_column("sku_code", pinned="left", width=100)
     gb.configure_column("Product_Name", pinned="left", width=220)
     
-    # -- Number Formatting (Integers) --
-    numeric_cols = sales_cols + ['L3M_Avg', 'Stock_Qty']
-    for col in numeric_cols:
-        gb.configure_column(col, type=["numericColumn"], valueFormatter="x.toLocaleString()", width=90)
-        
-    # -- Month Cover Logic --
-    gb.configure_column(
-        "Month_Cover", 
-        type=["numericColumn"], 
-        precision=1, 
-        cellStyle=js_month_cover,
-        width=100
-    )
+    # -- Specific Column Configs --
+    
+    # 1. Numeric Formatting for standard number columns
+    for col in ag_cols:
+        if col not in ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'Month_Cover'] and '_%' not in col:
+             gb.configure_column(col, type=["numericColumn"], valueFormatter="x.toLocaleString()", width=100)
 
-    # -- Consensus & Percentage Configuration --
+    # 2. Month Cover Styling
+    gb.configure_column("Month_Cover", type=["numericColumn"], precision=1, cellStyle=js_month_cover, width=100)
+
+    # 3. Percentage Columns Styling
     for month in st.session_state.adjustment_months:
-        # Consensus Column (EDITABLE)
-        gb.configure_column(
-            f'Cons_{month}', 
-            header_name=f"✏️ {month}", 
-            editable=True, 
-            type=["numericColumn"],
-            cellStyle=js_editable_cell,
-            valueFormatter="x.toLocaleString()",
-            width=110
-        )
-        
-        # Percentage Column (Read Only + Colored)
         pct_col = f'{month}_%'
-        gb.configure_column(
-            pct_col,
-            header_name="%",
-            type=["numericColumn"],
-            valueFormatter="x.toFixed(1) + '%'",
-            cellStyle=js_growth_pct,
-            width=80
-        )
+        if pct_col in ag_cols:
+            gb.configure_column(
+                pct_col,
+                header_name=f"{month} %",
+                type=["numericColumn"],
+                valueFormatter="x.toFixed(1) + '%'",
+                cellStyle=js_growth_pct,
+                width=90
+            )
+
+    # 4. Consensus Columns (EDITABLE) Styling
+    for month in st.session_state.adjustment_months:
+        cons_col = f'Cons_{month}'
+        if cons_col in ag_cols:
+            gb.configure_column(
+                cons_col, 
+                header_name=f"✏️ {month}", # Pakai emoji biar user tau ini inputan
+                editable=True, 
+                type=["numericColumn"],
+                cellStyle=js_editable_cell,
+                valueFormatter="x.toLocaleString()",
+                width=110,
+                pinned="right" # Opsional: Pin ke kanan biar gampang diakses (Bisa dihapus line ini kalau tidak mau)
+            )
 
     gb.configure_selection('single')
     gridOptions = gb.build()
 
     # =================================================================
-    # 6. RENDER GRID
+    # 5. RENDER GRID & LEGEND
     # =================================================================
-    st.markdown("#### 📝 Forecast Adjustment Grid")
     
+    # Legend simple di atas grid
+    st.markdown("""
+    <div style="display: flex; gap: 15px; margin-bottom: 10px; font-size: 0.8rem;">
+        <span style="background:#FCE7F3; padding: 2px 8px; border-radius:4px; color:#BE185D"><b>Cover > 1.5</b></span>
+        <span style="background:#FFEDD5; padding: 2px 8px; border-radius:4px; color:#9A3412"><b>Growth < 90%</b></span>
+        <span style="background:#FEE2E2; padding: 2px 8px; border-radius:4px; color:#991B1B"><b>Growth > 130%</b></span>
+        <span style="background:#EFF6FF; padding: 2px 8px; border-radius:4px; color:#1E3A8A; border:1px solid #bfdbfe"><b>✏️ Editable Consensus</b></span>
+    </div>
+    """, unsafe_allow_html=True)
+
     grid_response = AgGrid(
         ag_df,
         gridOptions=gridOptions,
         enable_enterprise_modules=False,
-        allow_unsafe_jscode=True, # Penting untuk CSS logic
-        update_mode=GridUpdateMode.VALUE_CHANGED, # Update saat diedit
+        allow_unsafe_jscode=True,
+        update_mode=GridUpdateMode.VALUE_CHANGED,
         height=600,
-        theme='alpine', # 'streamlit', 'alpine', 'balham'
-        key='consensus_grid'
+        theme='alpine',
+        key='consensus_grid_v2'
     )
 
-    # Ambil data hasil edit dari Grid
     updated_df = pd.DataFrame(grid_response['data'])
 
     # =================================================================
-    # 7. SAVE & ACTIONS SECTION
+    # 6. ACTIONS (SAVE & EXPORT)
     # =================================================================
     st.markdown("---")
-    st.markdown("### 💾 Actions")
-    
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("💾 Save All Changes", type="primary", use_container_width=True):
-            # Logic simpan ke session state
             st.session_state.edited_forecast_data = updated_df.copy()
             
-            # Hitung Change Summary
+            # Change Summary logic
             changes_summary = []
             for month in st.session_state.adjustment_months:
                 cons_col = f'Cons_{month}'
-                
-                # Bandingkan total Original vs New (Updated)
                 if cons_col in updated_df.columns:
-                    original_val = edit_df[cons_col].sum() # Dari data awal load
-                    new_val = updated_df[cons_col].sum()   # Dari grid
+                    original_val = edit_df[cons_col].sum()
+                    new_val = updated_df[cons_col].sum()
                     change = new_val - original_val
                     
                     changes_summary.append({
@@ -1000,31 +980,22 @@ with tab1:
                     })
             
             st.session_state.forecast_changes = changes_summary
-            st.success("✅ Changes saved to session!")
-            
-            # Tampilkan ringkasan perubahan
+            st.success("✅ Changes saved successfully!")
             if changes_summary:
                 st.dataframe(pd.DataFrame(changes_summary), use_container_width=True, hide_index=True)
 
     with col2:
-        if st.button("📤 Export Data (CSV)", use_container_width=True):
+        if st.button("📤 Export CSV", use_container_width=True):
             csv = updated_df.to_csv(index=False)
-            st.download_button(
-                label="⬇️ Click to Download",
-                data=csv,
-                file_name=f"consensus_forecast_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                key="dl_btn_grid"
-            )
+            st.download_button("⬇️ Download", csv, f"forecast_export_{datetime.now().date()}.csv", "text/csv")
             
     with col3:
-         # Real-time Stats Calculation (based on Grid data)
-        total_forecast = 0
-        for month in st.session_state.adjustment_months:
-            if f'Cons_{month}' in updated_df.columns:
-                total_forecast += updated_df[f'Cons_{month}'].sum()
-        
-        st.metric("Live Total Forecast", f"{total_forecast:,.0f}")
+        # Live counter
+        current_total = 0
+        for m in st.session_state.adjustment_months:
+            if f'Cons_{m}' in updated_df.columns:
+                current_total += updated_df[f'Cons_{m}'].sum()
+        st.metric("Live Total Consensus", f"{current_total:,.0f}")
 
 # ============================================================================
 # TAB 2: ANALYTICS DASHBOARD
