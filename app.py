@@ -16,7 +16,7 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V4.4",
+    page_title="ERHA S&OP Dashboard V5.0",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -28,7 +28,7 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-header {
-        background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
         padding: 1.5rem;
         border-radius: 12px;
         color: white;
@@ -36,9 +36,9 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     .stSelectbox label { font-weight: bold; }
-    div[data-testid="stMetricValue"] { font-size: 1.5rem; }
+    div[data-testid="stMetricValue"] { font-size: 1.4rem; }
     
-    /* CSS Fix untuk Zoom Out Browser */
+    /* Responsive Container */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
@@ -95,17 +95,27 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# 2. DATA LOADER
+# 2. DATA LOADER (UPDATED: LOAD 12 MONTHS + FLOOR PRICE)
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
-def load_data_with_cycle(selected_months):
+def load_data_v5(start_date_str):
+    """
+    Load data for 12 months rolling from start_date
+    """
     try:
         gs = GSheetConnector()
         sales_df = gs.get_sheet_data("sales_history")
         rofo_df = gs.get_sheet_data("rofo_current")
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # Clean Columns
+        # 1. Generate 12 Months Horizon List
+        start_date = datetime.strptime(start_date_str, "%b-%y")
+        horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+        
+        # Simpan ke session untuk Tab 2
+        st.session_state.horizon_months = horizon_months
+        
+        # 2. Clean Columns
         for df in [sales_df, rofo_df, stock_df]:
             if not df.empty:
                 df.columns = [c.strip().replace(' ', '_') for c in df.columns]
@@ -113,11 +123,11 @@ def load_data_with_cycle(selected_months):
         if sales_df.empty or rofo_df.empty:
             return pd.DataFrame()
 
-        # Merge Logic
+        # 3. Merge Logic
         possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
         valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # Prepare Sales
+        # 4. Prepare Sales (L3M)
         sales_date_cols = [c for c in sales_df.columns if '-' in c]
         l3m_cols = sales_date_cols[-3:] if len(sales_date_cols) >= 3 else sales_date_cols
         
@@ -128,33 +138,39 @@ def load_data_with_cycle(selected_months):
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
         
-        # Prepare ROFO
+        # 5. Prepare ROFO (Fetch 12 Months + Floor Price)
         rofo_cols = valid_keys.copy()
-        extra_cols = ['Channel', 'Product_Focus']
+        extra_cols = ['Channel', 'Product_Focus', 'floor_price'] # Tambah floor_price
+        
         for col in extra_cols:
             if col in rofo_df.columns and col not in rofo_cols:
                 rofo_cols.append(col)
             
-        for m in selected_months:
+        # Ambil semua bulan horizon jika ada di GSheet
+        for m in horizon_months:
             if m in rofo_df.columns:
                 rofo_cols.append(m)
         
         rofo_subset = rofo_df[rofo_cols].copy()
         
-        # Merge
+        # 6. Merge Sales + ROFO
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Handle Product Focus
-        if 'Product_Focus' not in merged_df.columns:
-            merged_df['Product_Focus'] = ""
-        else:
-            merged_df['Product_Focus'] = merged_df['Product_Focus'].fillna("")
+        # Handle Missing Extra Cols
+        if 'Product_Focus' not in merged_df.columns: merged_df['Product_Focus'] = ""
+        else: merged_df['Product_Focus'] = merged_df['Product_Focus'].fillna("")
+        
+        if 'floor_price' not in merged_df.columns: merged_df['floor_price'] = 0
+        else: 
+            # Pastikan floor_price numeric
+            merged_df['floor_price'] = pd.to_numeric(merged_df['floor_price'], errors='coerce').fillna(0)
 
-        for m in selected_months:
+        # Isi bulan kosong dengan 0
+        for m in horizon_months:
             if m not in merged_df.columns:
                 merged_df[m] = 0
                 
-        # Merge Stock
+        # 7. Merge Stock
         if not stock_df.empty and 'sku_code' in stock_df.columns:
             stock_col = 'Stock_Qty' if 'Stock_Qty' in stock_df.columns else stock_df.columns[1]
             merged_df = pd.merge(merged_df, stock_df[['sku_code', stock_col]], on='sku_code', how='left')
@@ -163,18 +179,21 @@ def load_data_with_cycle(selected_months):
             merged_df['Stock_Qty'] = 0
         merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
 
-        # Metrics
+        # 8. Metrics
         merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg'].replace(0, 1)).round(1)
         merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
         
-        # Init Consensus
-        for m in selected_months:
+        # 9. Init Consensus (M1-M3 only)
+        # 3 Bulan pertama (Cycle) dibuat kolom Cons_
+        # Sisanya tidak perlu Cons_ karena pakai data asli
+        cycle_months = horizon_months[:3]
+        for m in cycle_months:
             merged_df[f'Cons_{m}'] = merged_df[m]
             
         return merged_df
 
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        st.error(f"Error Loading Data: {str(e)}")
         return pd.DataFrame()
 
 def calculate_pct(df, months):
@@ -193,12 +212,14 @@ with st.sidebar:
     st.markdown("### ⚙️ Planning Cycle")
     
     curr_date = datetime.now()
+    # Opsi pilih bulan start
     start_list = [curr_date + relativedelta(months=i) for i in range(-1, 3)]
     option_map = {d.strftime("%b-%y"): d for d in start_list}
     default_idx = 1 if curr_date.day < 5 else 2
     
     selected_start_str = st.selectbox("Forecast Start Month", options=list(option_map.keys()), index=default_idx)
     
+    # Generate Cycle (3 Bulan)
     start_date = option_map[selected_start_str]
     cycle_months = [
         (start_date).strftime("%b-%y"),
@@ -207,8 +228,9 @@ with st.sidebar:
     ]
     st.session_state.adjustment_months = cycle_months
     
-    st.info(f"📅 Active Cycle:\n**{', '.join(cycle_months)}**")
-    if st.button("🔄 Reload Data Source"):
+    st.info(f"**Cycle (Consensus):**\n{', '.join(cycle_months)}\n\n**Full View:**\n12-Months Rolling")
+    
+    if st.button("🔄 Reload Data"):
         st.cache_data.clear()
         st.rerun()
 
@@ -218,18 +240,20 @@ with st.sidebar:
 
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard - Multi Channel</h2>
-    <p>Cycle: <b>{cycle_months[0]} - {cycle_months[2]}</b> | Mode: E-Commerce & Reseller Stacked</p>
+    <h2>📊 ERHA S&OP Dashboard V5</h2>
+    <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
 
-all_df = load_data_with_cycle(cycle_months)
+# Load Data (Now fetches 12 months)
+all_df = load_data_v5(selected_start_str)
+
 if all_df.empty:
     st.warning("No data found.")
     st.stop()
 
 # FILTER BAR
-with stylable_container(key="filters", css_styles="{background:white; padding:15px; border-radius:10px; border:1px solid #ddd;}"):
+with stylable_container(key="filters", css_styles="{background:white; padding:15px; border-radius:10px; border:1px solid #E2E8F0;}"):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         channels = ["ALL"] + sorted(all_df['Channel'].dropna().unique().tolist()) if 'Channel' in all_df.columns else ["ALL"]
@@ -254,139 +278,74 @@ if sel_group != "ALL": filtered_df = filtered_df[filtered_df['Brand_Group'] == s
 if sel_tier != "ALL": filtered_df = filtered_df[filtered_df['SKU_Tier'] == sel_tier]
 if sel_cover == "Over (>1.5)": filtered_df = filtered_df[filtered_df['Month_Cover'] > 1.5]
 
-tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics Summary"])
+tab1, tab2 = st.tabs(["📝 Forecast Worksheet (M1-M3)", "📈 Full Year Analytics (Value & Qty)"])
 
 # ============================================================================
-# TAB 1: WORKSHEET
+# TAB 1: WORKSHEET (Cycle M1-M3)
 # ============================================================================
 with tab1:
     edit_df = filtered_df.copy()
     edit_df = calculate_pct(edit_df, cycle_months)
     
     ag_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus']
+    hist_cols = [c for c in edit_df.columns if '-' in c and c not in st.session_state.horizon_months and 'Cons' not in c and '%' not in c][-3:]
     
-    hist_cols = [c for c in edit_df.columns if '-' in c and c not in cycle_months and 'Cons' not in c and '%' not in c][-3:]
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
-    ag_cols.extend(cycle_months)
+    ag_cols.extend(cycle_months) # Display Original M1-M3
     ag_cols.extend([f'{m}_%' for m in cycle_months])
-    ag_cols.extend([f'Cons_{m}' for m in cycle_months])
-    ag_cols = [c for c in ag_cols if c in edit_df.columns]
+    ag_cols.extend([f'Cons_{m}' for m in cycle_months]) # Editable M1-M3
     
+    ag_cols = [c for c in ag_cols if c in edit_df.columns]
     ag_df = edit_df[ag_cols].copy()
 
-    # --- JS STYLING ---
-    
-    # 1. WARNA SKU FOCUS (GANTI JADI TEAL / TOSCA)
-    js_sku_focus = JsCode("""
-    function(params) {
-        if (params.data.Product_Focus === 'Yes') {
-            return {
-                'backgroundColor': '#CCFBF1', // Teal 100
-                'color': '#0F766E',           // Teal 700
-                'fontWeight': 'bold',
-                'borderLeft': '4px solid #14B8A6' // Teal 500
-            };
-        }
-        return null; 
-    }
-    """)
-    
-    js_brand = JsCode("""
-    function(params) {
-        if (!params.value) return null;
-        const b = params.value.toLowerCase();
-        if (b.includes('acne')) return {'backgroundColor': '#E0F2FE', 'color': '#0284C7', 'fontWeight': 'bold'};
-        if (b.includes('tru')) return {'backgroundColor': '#DCFCE7', 'color': '#16A34A', 'fontWeight': 'bold'};
-        if (b.includes('hair')) return {'backgroundColor': '#FEF3C7', 'color': '#D97706', 'fontWeight': 'bold'};
-        if (b.includes('age')) return {'backgroundColor': '#E0E7FF', 'color': '#4F46E5', 'fontWeight': 'bold'};
-        if (b.includes('his')) return {'backgroundColor': '#F3E8FF', 'color': '#7C3AED', 'fontWeight': 'bold'};
-        return {'backgroundColor': '#F3F4F6'};
-    }
-    """)
-    
-    js_channel = JsCode("""
-    function(params) {
-        if (!params.value) return null;
-        if (params.value === 'E-commerce') return {'color': '#EA580C', 'fontWeight': 'bold'};
-        if (params.value === 'Reseller') return {'color': '#059669', 'fontWeight': 'bold'};
-        return null;
-    }
-    """)
-    
+    # JS Code
+    js_sku_focus = JsCode("function(p) { if(p.data.Product_Focus === 'Yes') return {'backgroundColor': '#CCFBF1', 'color': '#0F766E', 'fontWeight': 'bold', 'borderLeft': '4px solid #14B8A6'}; return null; }")
+    js_brand = JsCode("function(p) { if(!p.value) return null; const b=p.value.toLowerCase(); if(b.includes('acne')) return {'backgroundColor':'#E0F2FE','color':'#0284C7','fontWeight':'bold'}; if(b.includes('tru')) return {'backgroundColor':'#DCFCE7','color':'#16A34A','fontWeight':'bold'}; if(b.includes('hair')) return {'backgroundColor':'#FEF3C7','color':'#D97706','fontWeight':'bold'}; if(b.includes('age')) return {'backgroundColor':'#E0E7FF','color':'#4F46E5','fontWeight':'bold'}; if(b.includes('his')) return {'backgroundColor':'#F3E8FF','color':'#7C3AED','fontWeight':'bold'}; return {'backgroundColor':'#F3F4F6'}; }")
+    js_channel = JsCode("function(p) { if(!p.value) return null; if(p.value==='E-commerce') return {'color':'#EA580C','fontWeight':'bold'}; if(p.value==='Reseller') return {'color':'#059669','fontWeight':'bold'}; return null; }")
     js_cover = JsCode("function(p) { if(p.value > 1.5) return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'}; return null; }")
-    js_pct = JsCode("""
-    function(params) {
-        if (params.value < 90) return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'};
-        if (params.value > 130) return {'backgroundColor': '#FEE2E2', 'color': '#991B1B', 'fontWeight': 'bold'};
-        return {'color': '#374151'};
-    }
-    """)
+    js_pct = JsCode("function(p) { if(p.value < 90) return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'}; if(p.value > 130) return {'backgroundColor': '#FEE2E2', 'color': '#991B1B', 'fontWeight': 'bold'}; return {'color': '#374151'}; }")
     js_edit = JsCode("function(p) { return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'fontWeight': 'bold', 'color': '#1E40AF'}; }")
 
-    # --- GRID CONFIG (RESPONSIVE) ---
+    # Grid Config
     gb = GridOptionsBuilder.from_dataframe(ag_df)
     gb.configure_grid_options(rowHeight=35, headerHeight=40)
     gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False, minWidth=95)
     
-    # Pinned Cols
-    gb.configure_column("sku_code", pinned="left", width=100, minWidth=100, cellStyle=js_sku_focus)
+    gb.configure_column("sku_code", pinned="left", width=100, cellStyle=js_sku_focus)
     gb.configure_column("Product_Name", pinned="left", minWidth=200, flex=1)
-    gb.configure_column("Channel", pinned="left", width=110, minWidth=110, cellStyle=js_channel)
+    gb.configure_column("Channel", pinned="left", width=110, cellStyle=js_channel)
     gb.configure_column("Product_Focus", hide=True)
+    gb.configure_column("Brand", cellStyle=js_brand, width=120)
+    gb.configure_column("Month_Cover", cellStyle=js_cover, width=100)
     
-    # Styled Cols
-    gb.configure_column("Brand", cellStyle=js_brand, width=120, minWidth=120)
-    gb.configure_column("Month_Cover", cellStyle=js_cover, width=100, minWidth=100)
-    
-    # Number Format
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus'] and '%' not in c:
             gb.configure_column(c, type=["numericColumn"], valueFormatter="x.toLocaleString()", minWidth=105)
-    
+            
     for m in cycle_months:
-        pct_col = f'{m}_%'
-        if pct_col in ag_cols:
-            gb.configure_column(pct_col, header_name=f"{m} %", type=["numericColumn"], 
-                              valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
-
-    for m in cycle_months:
-        if f'Cons_{m}' in ag_cols:
-            gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, 
-                                cellStyle=js_edit, width=115, minWidth=115, pinned="right", 
-                                type=["numericColumn"], valueFormatter="x.toLocaleString()")
+        if f'{m}_%' in ag_cols: gb.configure_column(f'{m}_%', header_name=f"{m} %", type=["numericColumn"], valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
+        if f'Cons_{m}' in ag_cols: gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, cellStyle=js_edit, width=115, pinned="right", type=["numericColumn"], valueFormatter="x.toLocaleString()")
 
     gb.configure_selection('single')
     
-    # LEGEND (Updated)
-    st.markdown("""
-    <div style="font-size:0.8rem; margin-bottom:5px;">
-        <span style="background:#CCFBF1; color:#0F766E; padding:2px 6px; border-radius:4px; border:1px solid #14B8A6"><b>★ Focus SKU</b></span>
-        <span style="background:#FCE7F3; color:#BE185D; padding:2px 6px; border-radius:4px;"><b>Cover > 1.5</b></span>
-        <span style="background:#FFEDD5; color:#9A3412; padding:2px 6px; border-radius:4px;"><b>Growth < 90%</b></span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    grid_res = AgGrid(ag_df, gridOptions=gb.build(), allow_unsafe_jscode=True, 
-                      update_mode=GridUpdateMode.VALUE_CHANGED, height=600, theme='alpine', 
-                      key='v4_4_grid', use_container_width=True)
-    
+    grid_res = AgGrid(ag_df, gridOptions=gb.build(), allow_unsafe_jscode=True, update_mode=GridUpdateMode.VALUE_CHANGED, height=600, theme='alpine', key='v5_worksheet', use_container_width=True)
     updated_df = pd.DataFrame(grid_res['data'])
 
-    # ACTIONS
+    # Save Logic
     st.markdown("---")
     c_save, c_push, c_info = st.columns([1, 1, 2])
     with c_save:
-        if st.button("💾 Save Changes (Local)", type="primary", use_container_width=True):
-            st.session_state.edited_v4 = updated_df.copy()
-            st.success("Saved to session!")
+        if st.button("💾 Save (Local)", type="primary", use_container_width=True):
+            st.session_state.edited_v5 = updated_df.copy()
+            st.success("Saved!")
     with c_push:
-        if st.button("☁️ Push to GSheets", type="secondary", use_container_width=True):
-            if 'edited_v4' not in st.session_state: st.warning("Save locally first!")
+        if st.button("☁️ Push (GSheets)", type="secondary", use_container_width=True):
+            if 'edited_v5' not in st.session_state: st.warning("Save locally first!")
             else:
-                with st.spinner("Pushing data..."):
+                with st.spinner("Pushing..."):
                     keep = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus'] + [f'Cons_{m}' for m in cycle_months]
-                    final = st.session_state.edited_v4[keep].copy()
+                    final = st.session_state.edited_v5[keep].copy()
                     final['Last_Update'] = datetime.now().strftime('%Y-%m-%d %H:%M')
                     gs = GSheetConnector()
                     ok, msg = gs.save_data(final, "consensus_rofo")
@@ -396,22 +355,140 @@ with tab1:
         total = 0
         for m in cycle_months:
              if f'Cons_{m}' in updated_df.columns: total += updated_df[f'Cons_{m}'].sum()
-        st.metric("Total Forecast", f"{total:,.0f}")
+        st.metric("Total Consensus (M1-M3)", f"{total:,.0f}")
 
+# ============================================================================
+# TAB 2: ANALYTICS (FULL YEAR VALUE & QTY)
+# ============================================================================
 with tab2:
-    viz_df = updated_df if not updated_df.empty else filtered_df
-    c1, c2 = st.columns(2)
-    with c1:
-        if 'Channel' in viz_df.columns:
-            cons_cols = [f'Cons_{m}' for m in cycle_months if f'Cons_{m}' in viz_df.columns]
-            if cons_cols:
-                viz_df['Total_Cons'] = viz_df[cons_cols].sum(axis=1)
-                ch_agg = viz_df.groupby('Channel')['Total_Cons'].sum().reset_index()
-                fig = px.bar(ch_agg, x='Channel', y='Total_Cons', title="Total Volume by Channel", color='Channel', color_discrete_map={'E-commerce':'#EA580C', 'Reseller':'#059669'})
-                st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        trend_data = []
-        for m in cycle_months:
-             if f'Cons_{m}' in viz_df.columns: trend_data.append({'Month': m, 'Value': viz_df[f'Cons_{m}'].sum()})
-        if trend_data:
-            st.plotly_chart(px.line(pd.DataFrame(trend_data), x='Month', y='Value', markers=True, title="Monthly Trend"), use_container_width=True)
+    st.markdown("### 📈 12-Month Projection (Volume & Value)")
+    
+    # 1. Prepare Logic Data (Hybrid: Cons + ROFO)
+    # Gunakan data edited jika ada, atau filtered awal
+    base_df = updated_df if not updated_df.empty else filtered_df
+    
+    if base_df.empty:
+        st.stop()
+        
+    horizon = st.session_state.horizon_months # List 12 bulan
+    
+    # Kita buat kolom 'Final_Qty_{m}' dan 'Final_Val_{m}' untuk 12 bulan
+    # Logic: 
+    # M1-M3 -> Ambil dari Cons_{m}
+    # M4-M12 -> Ambil dari {m} (Raw GSheet)
+    
+    calc_df = base_df.copy()
+    
+    total_qty_cols = []
+    total_val_cols = []
+    
+    for m in horizon:
+        qty_col_name = f'Final_Qty_{m}'
+        val_col_name = f'Final_Val_{m}'
+        
+        # Determine Source
+        if m in cycle_months:
+            source_col = f'Cons_{m}'
+        else:
+            source_col = m
+            
+        # Calculate Qty
+        if source_col in calc_df.columns:
+            calc_df[qty_col_name] = calc_df[source_col].fillna(0)
+        else:
+            calc_df[qty_col_name] = 0
+            
+        # Calculate Value (Qty * Floor Price)
+        if 'floor_price' in calc_df.columns:
+            calc_df[val_col_name] = calc_df[qty_col_name] * calc_df['floor_price']
+        else:
+            calc_df[val_col_name] = 0
+            
+        total_qty_cols.append(qty_col_name)
+        total_val_cols.append(val_col_name)
+
+    # 2. Top Level Metrics (Full 12 Months)
+    grand_total_qty = calc_df[total_qty_cols].sum().sum()
+    grand_total_val = calc_df[total_val_cols].sum().sum()
+    
+    # KPI Cards
+    with stylable_container(key="kpi_v5", css_styles="{background-color:#F1F5F9; padding:20px; border-radius:10px; border:1px solid #CBD5E1;}"):
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            st.metric("12-Month Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
+        with k2:
+            # Format Billions (Miliar)
+            val_in_bio = grand_total_val / 1_000_000_000
+            st.metric("12-Month Revenue", f"Rp {val_in_bio:,.2f} M", "Estimated @ Floor Price")
+        with k3:
+            avg_price = (grand_total_val / grand_total_qty) if grand_total_qty > 0 else 0
+            st.metric("ASP (Avg Selling Price)", f"Rp {avg_price:,.0f}", "Weighted Avg")
+            
+    st.markdown("---")
+
+    # 3. Dual Axis Chart (Qty vs Value)
+    st.markdown("#### 📊 Monthly Projection Trend")
+    
+    # Prepare Aggregated Data for Chart
+    chart_data = []
+    for m in horizon:
+        q = calc_df[f'Final_Qty_{m}'].sum()
+        v = calc_df[f'Final_Val_{m}'].sum()
+        chart_data.append({"Month": m, "Volume": q, "Value": v})
+        
+    chart_df = pd.DataFrame(chart_data)
+    
+    # Plotly Combo Chart
+    fig_combo = go.Figure()
+    
+    # Bar for Volume (Left Axis)
+    fig_combo.add_trace(go.Bar(
+        x=chart_df['Month'],
+        y=chart_df['Volume'],
+        name='Volume (Qty)',
+        marker_color='#3B82F6',
+        opacity=0.7
+    ))
+    
+    # Line for Value (Right Axis)
+    fig_combo.add_trace(go.Scatter(
+        x=chart_df['Month'],
+        y=chart_df['Value'],
+        name='Value (Rp)',
+        yaxis='y2',
+        line=dict(color='#EF4444', width=3),
+        mode='lines+markers'
+    ))
+    
+    fig_combo.update_layout(
+        title="Volume vs Value Forecast (12 Months)",
+        yaxis=dict(title="Volume (Units)", showgrid=False),
+        yaxis2=dict(title="Value (Rp)", overlaying='y', side='right', showgrid=False),
+        legend=dict(x=0, y=1.1, orientation='h'),
+        hovermode="x unified",
+        height=500
+    )
+    
+    st.plotly_chart(fig_combo, use_container_width=True)
+    
+    # 4. Breakdown Table
+    with st.expander("🔎 View Breakdown by Brand (12 Months)", expanded=True):
+        # Aggregate by Brand
+        brand_agg_cols = ['Brand'] + total_val_cols
+        brand_summ = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
+        
+        # Rename cols for display
+        rename_map = {old: old.replace('Final_Val_', '') for old in total_val_cols}
+        brand_summ.rename(columns=rename_map, inplace=True)
+        
+        # Add Total Column
+        brand_summ['Total Year'] = brand_summ.iloc[:, 1:].sum(axis=1)
+        brand_summ = brand_summ.sort_values('Total Year', ascending=False)
+        
+        # Format for Display
+        st.dataframe(
+            brand_summ,
+            hide_index=True,
+            use_container_width=True,
+            column_config={c: st.column_config.NumberColumn(format="Rp %.0f") for c in brand_summ.columns if c != 'Brand'}
+        )
