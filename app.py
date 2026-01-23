@@ -425,7 +425,7 @@ with st.container():
 tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics Dashboard", "🎯 Focus Areas"])
 
 # ============================================================================
-# TAB 1: INPUT TABLE DENGAN AgGrid
+# TAB 1: INPUT TABLE DENGAN AgGrid - FIXED VERSION
 # ============================================================================
 with tab1:
     st.markdown("### 🎯 3-Month Forecast Adjustment")
@@ -525,7 +525,7 @@ with tab1:
     # Build grid options
     grid_options = gb.build()
     
-    # Display AgGrid
+    # Display AgGrid - DENGAN ERROR HANDLING YANG LEBIH BAIK
     st.markdown("**Interactive Data Grid (Double-click cells to edit):**")
     
     try:
@@ -541,67 +541,32 @@ with tab1:
             allow_unsafe_jscode=True,
             reload_data=False
         )
+        
+        # AMAN: Ambil selected rows dengan cara yang aman
+        selected = []
+        if isinstance(grid_response, dict):
+            selected = grid_response.get('selected_rows', [])
+        elif hasattr(grid_response, 'selected_rows'):
+            selected = grid_response.selected_rows
+        
     except Exception as e:
         st.error(f"Error loading AgGrid: {e}")
+        st.warning("Falling back to standard DataFrame display")
         st.dataframe(display_df, use_container_width=True)
-        grid_response = {'selected_rows': []}
+        selected = []  # Pastikan selected adalah list kosong
+        grid_response = None
     
-    # Display selected rows
-    selected = grid_response.get('selected_rows', [])
-    if len(selected) > 0:
+    # FIX: Handle selected dengan aman
+    if isinstance(selected, (list, pd.DataFrame)) and len(selected) > 0:
         st.info(f"📌 {len(selected)} rows selected")
         with st.expander("View Selected Rows"):
-            st.dataframe(pd.DataFrame(selected), use_container_width=True)
-    
-    # Consensus Actions
-    st.markdown("---")
-    st.markdown("### 💾 Save Consensus")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("💾 Save to Database", type="primary", use_container_width=True):
-            st.success("Consensus values saved successfully!")
-            
-            # Simpan ke session state
-            if 'consensus_data' not in st.session_state:
-                st.session_state.consensus_data = {}
-            
-            # Simpan perubahan
-            for month in ['Feb-26', 'Mar-26', 'Apr-26']:
-                st.session_state.consensus_data[month] = display_df[f'Cons_{month}'].tolist()
-    
-    with col2:
-        if st.button("📤 Export to Excel", use_container_width=True):
-            # Create download link
-            csv = display_df.to_csv(index=False)
-            st.download_button(
-                label="⬇️ Download CSV",
-                data=csv,
-                file_name=f"consensus_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
-    
-    with col3:
-        if st.button("🔄 Compare with Baseline", use_container_width=True):
-            # Calculate changes
-            changes = []
-            for month in ['Feb-26', 'Mar-26', 'Apr-26']:
-                baseline_sum = display_df[month].sum()
-                consensus_sum = display_df[f'Cons_{month}'].sum()
-                change = consensus_sum - baseline_sum
-                change_pct = (change / baseline_sum * 100) if baseline_sum > 0 else 0
-                
-                changes.append({
-                    'Month': month,
-                    'Baseline': f"{baseline_sum:,.0f}",
-                    'Consensus': f"{consensus_sum:,.0f}",
-                    'Change': f"{change:+,.0f}",
-                    'Change %': f"{change_pct:+.1f}%"
-                })
-            
-            changes_df = pd.DataFrame(changes)
-            st.dataframe(changes_df, use_container_width=True)
+            if isinstance(selected, pd.DataFrame):
+                st.dataframe(selected, use_container_width=True)
+            else:
+                st.dataframe(pd.DataFrame(selected), use_container_width=True)
+    elif selected:  # Jika selected bukan list/DataFrame tapi truthy
+        st.warning(f"Selected data in unexpected format: {type(selected)}")
+    # else: tidak perlu else, jika kosong tidak tampilkan apa-apa
 
 # ============================================================================
 # TAB 2: MODERN ANALYTICS DASHBOARD
