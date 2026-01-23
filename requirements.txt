@@ -7,3 +7,4 @@ google-auth
 streamlit-aggrid
 streamlit-extras
 streamlit-autorefresh
+python-dateutil
