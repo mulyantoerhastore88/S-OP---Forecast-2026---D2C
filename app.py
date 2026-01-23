@@ -17,7 +17,7 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V5.4",
+    page_title="ERHA S&OP Dashboard V5.5",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -261,7 +261,7 @@ with st.sidebar:
 # ============================================================================
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V5.4</h2>
+    <h2>📊 ERHA S&OP Dashboard V5.5</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
@@ -295,7 +295,7 @@ if sel_group != "ALL": filtered_df = filtered_df[filtered_df['Brand_Group'] == s
 if sel_tier != "ALL": filtered_df = filtered_df[filtered_df['SKU_Tier'] == sel_tier]
 if sel_cover == "Over (>1.5)": filtered_df = filtered_df[filtered_df['Month_Cover'] > 1.5]
 
-tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Full Year Analytics"])
+tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics"])
 
 # ============================================================================
 # TAB 1: WORKSHEET
@@ -310,14 +310,11 @@ with tab1:
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
     
-    # === FIX: MASUKKAN SEMUA HORIZON MONTHS KE AG-GRID ===
-    # Tapi sembunyikan M4-M12 agar tidak penuh
     ag_cols.extend(st.session_state.horizon_months) 
     
     ag_cols.extend([f'{m}_%' for m in cycle_months])
     ag_cols.extend([f'Cons_{m}' for m in cycle_months])
     
-    # Remove duplicates preserving order
     ag_cols = list(dict.fromkeys(ag_cols))
     ag_cols = [c for c in ag_cols if c in edit_df.columns]
     
@@ -344,11 +341,8 @@ with tab1:
     gb.configure_column("Brand", cellStyle=js_brand, width=120)
     gb.configure_column("Month_Cover", cellStyle=js_cover, width=100)
     
-    # Hide M4-M12 Columns (Future ROFO)
-    # They are there for data transfer, but hidden from view
     for m in st.session_state.horizon_months:
-        if m not in cycle_months: # Jika bukan M1-M3, sembunyikan
-            gb.configure_column(m, hide=True)
+        if m not in cycle_months: gb.configure_column(m, hide=True)
     
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus', 'floor_price'] and '%' not in c:
@@ -389,31 +383,44 @@ with tab1:
         st.metric("Total Consensus (M1-M3)", f"{total:,.0f}")
 
 # ============================================================================
-# TAB 2: ANALYTICS
+# TAB 2: ANALYTICS (UPGRADED)
 # ============================================================================
 with tab2:
-    st.markdown("### 📈 12-Month Projection (Volume & Value)")
+    st.markdown("### 📈 Projection Analytics")
     
     base_df = updated_df if not updated_df.empty else filtered_df
     if base_df.empty: st.stop()
         
-    horizon = st.session_state.horizon_months
-    calc_df = base_df.copy()
+    full_horizon = st.session_state.horizon_months
     
+    # --- CONTROLS ---
+    c_view, c_year = st.columns([2, 1])
+    with c_view:
+        chart_view = st.radio("Chart View:", ["Total Volume", "Breakdown by Brand"], horizontal=True)
+    with c_year:
+        show_2026_only = st.checkbox("📅 View 2026 Only", value=False)
+
+    # --- FILTER ACTIVE MONTHS ---
+    if show_2026_only:
+        active_months = [m for m in full_horizon if "-26" in m]
+    else:
+        active_months = full_horizon
+
+    # Calculate Values based on Active Months
+    calc_df = base_df.copy()
     if 'floor_price' not in calc_df.columns: calc_df['floor_price'] = 0
-        
+    
     total_qty_cols = []
     total_val_cols = []
     
-    for m in horizon:
+    for m in active_months:
         qty_col = f'Final_Qty_{m}'
         val_col = f'Final_Val_{m}'
         
-        # Hybrid Source
+        # Source
         if m in cycle_months: source_col = f'Cons_{m}'
         else: source_col = m
             
-        # Pastikan kolom ada (terbawa dari Tab 1 hidden cols)
         if source_col in calc_df.columns:
             calc_df[qty_col] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
         else:
@@ -424,30 +431,75 @@ with tab2:
         total_qty_cols.append(qty_col)
         total_val_cols.append(val_col)
 
+    # TOP METRICS (ACTIVE VIEW)
     grand_total_qty = calc_df[total_qty_cols].sum().sum()
     grand_total_val = calc_df[total_val_cols].sum().sum()
     
     with stylable_container(key="kpi_v5", css_styles="{background-color:#F1F5F9; padding:20px; border-radius:10px; border:1px solid #CBD5E1;}"):
         k1, k2 = st.columns(2)
-        with k1: st.metric("12-Month Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
-        with k2: st.metric("12-Month Revenue", f"Rp {grand_total_val/1_000_000_000:,.2f} M", "Estimated @ Floor Price")
+        period_label = "2026 Only" if show_2026_only else "12-Month"
+        with k1: st.metric(f"{period_label} Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
+        with k2: st.metric(f"{period_label} Revenue", f"Rp {grand_total_val/1_000_000_000:,.2f} M", "Estimated @ Floor Price")
             
     st.markdown("---")
 
+    # --- PREPARE CHART DATA ---
     chart_data = []
-    for m in horizon:
-        q = calc_df[f'Final_Qty_{m}'].sum()
-        v = calc_df[f'Final_Val_{m}'].sum()
-        chart_data.append({"Month": m, "Volume": q, "Value": v})
-        
+    if chart_view == "Total Volume":
+        # Simple Aggregation
+        for m in active_months:
+            q = calc_df[f'Final_Qty_{m}'].sum()
+            v = calc_df[f'Final_Val_{m}'].sum()
+            chart_data.append({"Month": m, "Volume": q, "Value": v, "Type": "Total"})
+    else:
+        # Breakdown by Brand
+        for m in active_months:
+            # Group by Brand
+            grp = calc_df.groupby('Brand')[[f'Final_Qty_{m}', f'Final_Val_{m}']].sum().reset_index()
+            total_v_month = grp[f'Final_Val_{m}'].sum()
+            for idx, row in grp.iterrows():
+                chart_data.append({
+                    "Month": m, 
+                    "Brand": row['Brand'], 
+                    "Volume": row[f'Final_Qty_{m}'], 
+                    "Value": total_v_month # Value line is always Total
+                })
+
     chart_df = pd.DataFrame(chart_data)
     
     fig_combo = go.Figure()
-    fig_combo.add_trace(go.Bar(x=chart_df['Month'], y=chart_df['Volume'], name='Volume (Qty)', marker_color='#3B82F6', opacity=0.7))
-    fig_combo.add_trace(go.Scatter(x=chart_df['Month'], y=chart_df['Value'], name='Value (Rp)', yaxis='y2', line=dict(color='#EF4444', width=3), mode='lines+markers'))
+    
+    # 1. BAR CHART (Volume)
+    if chart_view == "Total Volume":
+        fig_combo.add_trace(go.Bar(
+            x=chart_df['Month'], y=chart_df['Volume'], 
+            name='Volume (Qty)', marker_color='#3B82F6', opacity=0.8
+        ))
+    else:
+        # Stacked Bar by Brand
+        brands = chart_df['Brand'].unique()
+        # Use a nice color cycle
+        colors = px.colors.qualitative.Pastel
+        for i, brand in enumerate(brands):
+            b_data = chart_df[chart_df['Brand'] == brand]
+            color = colors[i % len(colors)]
+            fig_combo.add_trace(go.Bar(
+                x=b_data['Month'], y=b_data['Volume'], 
+                name=brand, marker_color=color
+            ))
+        fig_combo.update_layout(barmode='stack')
+
+    # 2. LINE CHART (Total Value) - Always Total
+    # Need single row per month for the line
+    line_data = chart_df.drop_duplicates(subset=['Month'])
+    fig_combo.add_trace(go.Scatter(
+        x=line_data['Month'], y=line_data['Value'], 
+        name='Total Value (Rp)', yaxis='y2', 
+        line=dict(color='#EF4444', width=3), mode='lines+markers'
+    ))
     
     fig_combo.update_layout(
-        title="Volume vs Value Forecast (12 Months)",
+        title=f"Forecast Trend ({period_label})",
         yaxis=dict(title="Volume (Units)", showgrid=False),
         yaxis2=dict(title="Value (Rp)", overlaying='y', side='right', showgrid=False),
         legend=dict(x=0, y=1.1, orientation='h'),
@@ -456,20 +508,18 @@ with tab2:
     )
     st.plotly_chart(fig_combo, use_container_width=True)
     
-    with st.expander("🔎 View Breakdown by Brand (12 Months)", expanded=True):
+    # --- BREAKDOWN TABLE ---
+    with st.expander(f"🔎 View Breakdown by Brand ({period_label})", expanded=True):
         brand_summ = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
-        # Rename for easier display
         rename_map = {old: old.replace('Final_Val_', '') for old in total_val_cols}
         brand_summ.rename(columns=rename_map, inplace=True)
-        brand_summ['Total Year'] = brand_summ.iloc[:, 1:].sum(axis=1)
-        brand_summ = brand_summ.sort_values('Total Year', ascending=False)
+        brand_summ['Total Period'] = brand_summ.iloc[:, 1:].sum(axis=1)
+        brand_summ = brand_summ.sort_values('Total Period', ascending=False)
         
-        # --- FIX: FORMAT CURRENCY IN TABLE WITH COMMAS ---
-        # Convert numeric to string with Rp and commas
-        formatted_df = brand_summ.copy()
-        for col in formatted_df.columns:
-            if col != 'Brand':
-                # Apply format: Rp 1,000,000
-                formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}")
-
-        st.dataframe(formatted_df, hide_index=True, use_container_width=True)
+        # Formatting with Rp and Commas
+        fmt_df = brand_summ.copy()
+        for c in fmt_df.columns:
+            if c != 'Brand':
+                fmt_df[c] = fmt_df[c].apply(lambda x: f"Rp {x:,.0f}")
+                
+        st.dataframe(fmt_df, hide_index=True, use_container_width=True)
