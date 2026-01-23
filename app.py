@@ -93,20 +93,64 @@ class GSheetConnector:
 # ============================================================================
 def clean_currency(val):
     """
-    Membersihkan angka dengan aman.
-    Menghapus Rp, spasi, dan koma (pemisah ribuan US).
-    TIDAK MENGHAPUS TITIK (.) agar desimal aman (Contoh: 12402.0 tidak jadi 124020)
+    Clean currency values from Google Sheets.
+    Handles:
+    - Rp 1.250.000 → 1250000
+    - 1,250 → 1250
+    - 1250 → 1250 (tetap)
+    - '125' → 125 (tidak dikalikan 10)
     """
-    if pd.isna(val) or val == '': return 0
-    if isinstance(val, (int, float)): return val
+    if pd.isna(val) or val == '' or val is None:
+        return 0
     
     val_str = str(val).strip()
-    # Hapus Rp, spasi, dan koma (thousand separator)
-    # Regex: Hanya sisakan angka (0-9) dan titik (.)
-    clean_str = re.sub(r'[^0-9.]', '', val_str)
     
+    # Jika sudah berupa angka (tanpa Rp, koma, titik)
+    if val_str.replace('.', '').replace(',', '').isdigit():
+        # Cek jika ada titik sebagai pemisah ribuan
+        if '.' in val_str and ',' not in val_str:
+            # Format: 1.250 (ribuan) atau 1.250.000 (jutaan)
+            parts = val_str.split('.')
+            if len(parts[-1]) == 3:  # 3 digit terakhir
+                # Ini format ribuan: 1.250 → 1250
+                return float(val_str.replace('.', ''))
+            else:
+                # Format desimal atau ambigu
+                try:
+                    return float(val_str.replace('.', ''))
+                except:
+                    return float(val_str)
+        elif ',' in val_str and '.' not in val_str:
+            # Format: 1,250 (ribuan) atau 1,250,000
+            return float(val_str.replace(',', ''))
+        else:
+            # Angka biasa tanpa separator
+            try:
+                return float(val_str)
+            except:
+                return 0
+    
+    # Jika ada Rp atau simbol mata uang
+    if 'rp' in val_str.lower():
+        # Hapus Rp dan spasi
+        clean = re.sub(r'[^0-9.,]', '', val_str.lower().replace('rp', ''))
+        # Hapus titik dan koma
+        clean = clean.replace('.', '').replace(',', '')
+        try:
+            return float(clean) if clean else 0
+        except:
+            return 0
+    
+    # Untuk nilai dengan titik sebagai desimal
+    if '.' in val_str and val_str.count('.') == 1:
+        try:
+            return float(val_str)
+        except:
+            pass
+    
+    # Fallback: coba konversi langsung
     try:
-        return float(clean_str)
+        return float(val_str)
     except:
         return 0
 
