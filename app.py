@@ -75,9 +75,9 @@ st.markdown("""
         font-weight: 400;
     }
     
-    /* Table Container dengan Frozen Header */
+    /* Scrollable Table Container */
     .table-container {
-        max-height: 500px;
+        max-height: 600px;
         overflow-y: auto;
         overflow-x: auto;
         border: 1px solid #E5E7EB;
@@ -158,6 +158,7 @@ st.markdown("""
     .brand-hiserha { background-color: #FEF7CD !important; }
     .brand-perfect-shield { background-color: #FCE7F3 !important; }
     .brand-skinsitive { background-color: #F3E8FF !important; }
+    .brand-erha-others { background-color: #F5F5F5 !important; }
     
     /* Percentage styling */
     .percentage-cell {
@@ -166,14 +167,15 @@ st.markdown("""
     }
     
     /* Consensus cell styling (editable) */
-    .consensus-cell {
+    .consensus-cell-editable {
         background-color: #F0F9FF !important;
         border: 1px solid #3B82F6 !important;
         font-weight: 600 !important;
     }
     
-    .consensus-cell:hover {
+    .consensus-cell-editable:hover {
         background-color: #DBEAFE !important;
+        cursor: pointer;
     }
     
     /* Modern Cards */
@@ -251,14 +253,30 @@ st.markdown("""
         font-weight: 500;
         color: #4B5563;
     }
+    
+    /* Data Editor Custom Styling */
+    div[data-testid="stDataEditor"] {
+        border-radius: 8px;
+        border: 1px solid #E5E7EB;
+    }
+    
+    /* Focus on editable cells */
+    div[data-testid="stEditableColumn"] {
+        background-color: #F0F9FF !important;
+    }
+    
+    div[data-testid="stEditableColumn"]:focus {
+        outline: 2px solid #3B82F6 !important;
+        outline-offset: -2px;
+    }
+    
+    /* Responsive */
+    @media (max-width: 768px) {
+        .main-title { font-size: 2rem; }
+        .table-container { max-height: 400px; }
+    }
 </style>
 """, unsafe_allow_html=True)
-
-# ============================================================================
-# AUTO-REFRESH (setiap 5 menit)
-# ============================================================================
-# Uncomment untuk auto-refresh
-# st_autorefresh(interval=5 * 60 * 1000, key="data_refresh")
 
 # ============================================================================
 # GSHEET CONNECTOR CLASS
@@ -291,20 +309,6 @@ class GSheetConnector:
         except Exception as e:
             st.error(f"Error reading sheet {sheet_name}: {str(e)}")
             return pd.DataFrame()
-    
-    def update_sheet(self, sheet_name, df):
-        """Update sheet with DataFrame"""
-        try:
-            worksheet = self.sheet.worksheet(sheet_name)
-            worksheet.clear()
-            
-            # Convert DataFrame to list of lists
-            data = [df.columns.values.tolist()] + df.values.tolist()
-            worksheet.update(data, value_input_option='USER_ENTERED')
-            return True
-        except Exception as e:
-            st.error(f"Error updating sheet {sheet_name}: {str(e)}")
-            return False
 
 # ============================================================================
 # DATA LOADER DENGAN GSHEETCONNECTOR
@@ -313,48 +317,30 @@ class GSheetConnector:
 def load_all_data():
     """Load and process all required data dari Google Sheets"""
     
-    # Buat loading state
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     try:
-        # Step 1: Connect to Google Sheets
-        status_text.text("🔄 Connecting to Google Sheets...")
-        progress_bar.progress(10)
-        
         # Gunakan GSheetConnector
         gs = GSheetConnector()
         
-        # Step 2: Load sales history
-        status_text.text("📥 Loading sales history...")
-        progress_bar.progress(30)
+        # Load sales history
         sales_df = gs.get_sheet_data("sales_history")
         
         if sales_df.empty:
             st.error("❌ No sales history data found")
             return pd.DataFrame()
         
-        # Step 3: Load ROFO current
-        status_text.text("📊 Loading ROFO forecast...")
-        progress_bar.progress(50)
+        # Load ROFO current
         rofo_df = gs.get_sheet_data("rofo_current")
         
         if rofo_df.empty:
             st.error("❌ No ROFO forecast data found")
             return pd.DataFrame()
         
-        # Step 4: Load stock data
-        status_text.text("📦 Loading stock data...")
-        progress_bar.progress(70)
+        # Load stock data
         stock_df = gs.get_sheet_data("stock_onhand")
-        
-        # Step 5: Process data
-        status_text.text("⚙️ Processing data...")
-        progress_bar.progress(90)
         
         # ===== PROSES DATA =====
         
-        # 1. Get last 3 months sales (Oct, Nov, Dec 2025)
+        # 1. Get last 3 months sales
         sales_months = ['Oct-25', 'Nov-25', 'Dec-25']
         available_sales_months = [m for m in sales_months if m in sales_df.columns]
         
@@ -366,8 +352,7 @@ def load_all_data():
         
         # 2. Get ROFO months
         adjustment_months = ['Feb-26', 'Mar-26', 'Apr-26']
-        all_rofo_months = adjustment_months
-        available_rofo_months = [m for m in all_rofo_months if m in rofo_df.columns]
+        available_rofo_months = [m for m in adjustment_months if m in rofo_df.columns]
         
         # 3. Merge data
         sales_cols = ['sku_code', 'Product_Name', 'Brand_Group', 'Brand', 'SKU_Tier', 'L3M_Avg']
@@ -398,18 +383,7 @@ def load_all_data():
                     how='left'
                 )
             else:
-                # Cari kolom stock dengan nama lain
-                stock_cols = [col for col in stock_df.columns if 'stock' in col.lower() or 'qty' in col.lower()]
-                if stock_cols:
-                    merged_df = pd.merge(
-                        merged_df,
-                        stock_df[['sku_code'] + stock_cols[:1]],
-                        on='sku_code',
-                        how='left'
-                    )
-                    merged_df.rename(columns={stock_cols[0]: 'Stock_Qty'}, inplace=True)
-                else:
-                    merged_df['Stock_Qty'] = 0
+                merged_df['Stock_Qty'] = 0
         else:
             merged_df['Stock_Qty'] = 0
         
@@ -424,20 +398,12 @@ def load_all_data():
             if month in merged_df.columns:
                 merged_df[f'Cons_{month}'] = merged_df[month]
         
-        status_text.text("✅ Data loaded successfully!")
-        progress_bar.progress(100)
-        time.sleep(0.5)
-        status_text.empty()
-        progress_bar.empty()
-        
         # Simpan informasi bulan ke session state
         st.session_state.adjustment_months = [m for m in adjustment_months if m in available_rofo_months]
         
         return merged_df
         
     except Exception as e:
-        status_text.empty()
-        progress_bar.empty()
         st.error(f"❌ Error loading data: {str(e)}")
         st.info("⚠️ Using demo data for now.")
         
@@ -446,7 +412,6 @@ def load_all_data():
 
 def create_demo_data():
     """Create demo data if Google Sheets fails"""
-    st.warning("⚠️ Using demo data. Real data will be loaded when Google Sheets connection is fixed.")
     
     np.random.seed(42)
     
@@ -502,8 +467,8 @@ def calculate_percentage_columns(df):
     
     return df_calc
 
-def create_html_table_with_frozen_header(df):
-    """Create HTML table with frozen header and conditional formatting"""
+def create_styled_html_table(df, editable_consensus=False):
+    """Create HTML table with styling from dataframe"""
     
     html = """
     <div class="table-container">
@@ -529,29 +494,43 @@ def create_html_table_with_frozen_header(df):
             display_value = value
             
             # Format persentase
-            if '_%' in col and isinstance(value, (int, float)):
-                display_value = f"{value:.1f}%"
-                cell_class += 'percentage-cell '
-                
-                # Conditional formatting untuk persentase
-                if value < 90:
-                    cell_class += 'growth-low '
-                elif value > 130:
-                    cell_class += 'growth-high '
+            if '_%' in col:
+                try:
+                    # Extract numeric value untuk conditional formatting
+                    if isinstance(value, str) and '%' in value:
+                        num_value = float(value.replace('%', ''))
+                    else:
+                        num_value = float(value)
+                    
+                    display_value = f"{num_value:.1f}%" if isinstance(num_value, (int, float)) else value
+                    cell_class += 'percentage-cell '
+                    
+                    if num_value < 90:
+                        cell_class += 'growth-low '
+                    elif num_value > 130:
+                        cell_class += 'growth-high '
+                except:
+                    pass
             
             # Conditional formatting untuk Month_Cover
-            elif col == 'Month_Cover' and isinstance(value, (int, float)):
-                if value > 1.5:
-                    cell_class += 'month-cover-high '
+            elif col == 'Month_Cover':
+                try:
+                    num_value = float(value)
+                    if num_value > 1.5:
+                        cell_class += 'month-cover-high '
+                    display_value = f"{num_value:.1f}"
+                except:
+                    pass
             
             # Brand coloring
-            elif col == 'Brand' and isinstance(value, str):
-                brand_lower = value.lower().replace(' ', '-').replace('_', '-')
-                cell_class += f'brand-{brand_lower} '
+            elif col == 'Brand':
+                if isinstance(value, str):
+                    brand_lower = value.lower().replace(' ', '-').replace('_', '-')
+                    cell_class += f'brand-{brand_lower} '
             
-            # Consensus cells styling
-            elif col.startswith('Cons_'):
-                cell_class += 'consensus-cell '
+            # Consensus cells styling jika editable
+            elif col.startswith('Cons_') and editable_consensus:
+                cell_class += 'consensus-cell-editable '
             
             html += f'<td class="{cell_class.strip()}">{display_value}</td>'
         
@@ -790,10 +769,11 @@ with st.container():
 tab1, tab2, tab3 = st.tabs(["📝 Input & Adjustment", "📊 Analytics Dashboard", "🎯 Focus Areas"])
 
 # ============================================================================
-# TAB 1: INPUT & ADJUSTMENT (WITH EDITABLE TABLE)
+# TAB 1: INPUT & ADJUSTMENT (DIRECT EDITABLE TABLE)
 # ============================================================================
 with tab1:
-    st.markdown("### 🎯 3-Month Forecast Adjustment")
+    st.markdown("### 🎯 Interactive Forecast Adjustment")
+    st.markdown("*Edit consensus values directly in the table below*")
     
     # Filter data untuk tab 1
     filtered_df = all_df.copy()
@@ -853,152 +833,190 @@ with tab1:
     """, unsafe_allow_html=True)
     
     # =================================================================
-    # STEP 1: DISPLAY TABLE DENGAN FROZEN HEADER
+    # PREPARE DATA FOR EDITABLE TABLE
     # =================================================================
-    st.markdown("#### 📋 Forecast Table (Read-only View)")
-    st.markdown("*Scroll to see all data - Headers stay fixed at top*")
     
-    # Prepare display dataframe dengan semua kolom yang diperlukan
-    display_columns = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    # Buat dataframe untuk editing
+    edit_df = filtered_df.copy()
     
-    # Add sales months if available
-    sales_cols = [col for col in ['Oct-25', 'Nov-25', 'Dec-25'] if col in filtered_df.columns]
-    display_columns += sales_cols
+    # Tambahkan row numbers
+    edit_df.insert(0, 'No.', range(1, len(edit_df) + 1))
     
-    # Add calculated columns
-    calc_cols = [col for col in ['L3M_Avg', 'Stock_Qty', 'Month_Cover'] if col in filtered_df.columns]
-    display_columns += calc_cols
+    # Hitung percentage columns
+    edit_df = calculate_percentage_columns(edit_df)
     
-    # Add forecast months
-    forecast_cols = []
+    # Pilih kolom untuk ditampilkan (dalam urutan yang logis)
+    display_cols = ['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    
+    # Tambahkan sales months
+    sales_cols = [col for col in ['Oct-25', 'Nov-25', 'Dec-25'] if col in edit_df.columns]
+    display_cols.extend(sales_cols)
+    
+    # Tambahkan calculated columns
+    calc_cols = ['L3M_Avg', 'Stock_Qty', 'Month_Cover']
+    display_cols.extend([col for col in calc_cols if col in edit_df.columns])
+    
+    # Tambahkan original forecast columns (read-only)
     for month in st.session_state.adjustment_months:
-        if month in filtered_df.columns:
-            forecast_cols.append(month)
-    display_columns += forecast_cols
+        if month in edit_df.columns:
+            display_cols.append(month)
     
-    # Create display dataframe
-    display_df = filtered_df[display_columns].copy()
-    
-    # Calculate percentage columns
-    display_df = calculate_percentage_columns(display_df)
-    
-    # Add percentage columns to display
+    # Tambahkan percentage columns (read-only)
     for month in st.session_state.adjustment_months:
         pct_col = f'{month}_%'
-        if pct_col in display_df.columns:
-            display_columns.append(pct_col)
+        if pct_col in edit_df.columns:
+            display_cols.append(pct_col)
     
-    # Add consensus columns
+    # Tambahkan consensus columns (EDITABLE - inilah yang penting!)
     consensus_cols = []
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
-        if cons_col in filtered_df.columns:
-            display_df[cons_col] = filtered_df[cons_col]
-            consensus_cols.append(cons_col)
-        else:
-            # Initialize consensus columns
-            if month in filtered_df.columns:
-                display_df[cons_col] = filtered_df[month]
-                consensus_cols.append(cons_col)
+        if cons_col not in edit_df.columns:
+            # Initialize jika belum ada
+            edit_df[cons_col] = edit_df[month] if month in edit_df.columns else 0
+        consensus_cols.append(cons_col)
+        display_cols.append(cons_col)
     
-    display_columns += consensus_cols
+    # =================================================================
+    # COLUMN CONFIGURATION FOR DATA EDITOR
+    # =================================================================
     
-    # Reorder columns untuk display yang lebih baik
-    final_display_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
-    final_display_cols += sales_cols
-    final_display_cols += calc_cols
-    final_display_cols += forecast_cols
+    column_config = {}
     
-    # Add percentage columns setelah forecast columns
-    pct_cols_list = []
+    # Read-only columns (semua kecuali consensus)
+    readonly_cols = ['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
+    readonly_cols.extend(sales_cols)
+    readonly_cols.extend([col for col in calc_cols if col in edit_df.columns])
+    readonly_cols.extend(st.session_state.adjustment_months)  # Original forecast
+    
+    # Tambahkan percentage columns ke readonly
     for month in st.session_state.adjustment_months:
         pct_col = f'{month}_%'
-        if pct_col in display_df.columns:
-            pct_cols_list.append(pct_col)
-    final_display_cols += pct_cols_list
+        if pct_col in edit_df.columns:
+            readonly_cols.append(pct_col)
     
-    # Add consensus columns di akhir
-    final_display_cols += consensus_cols
+    for col in readonly_cols:
+        if col in display_cols:
+            display_name = col.replace('_', ' ').replace('-', ' ')
+            
+            # Special handling untuk percentage columns
+            if '_%' in col:
+                column_config[col] = st.column_config.NumberColumn(
+                    display_name,
+                    format="%.1f%%",
+                    disabled=True
+                )
+            # Special handling untuk Month_Cover
+            elif col == 'Month_Cover':
+                column_config[col] = st.column_config.NumberColumn(
+                    display_name,
+                    format="%.1f",
+                    disabled=True
+                )
+            # Special handling untuk numeric columns
+            elif col in ['L3M_Avg', 'Stock_Qty'] + sales_cols + st.session_state.adjustment_months:
+                column_config[col] = st.column_config.NumberColumn(
+                    display_name,
+                    format="%d",
+                    disabled=True
+                )
+            # Untuk text columns
+            else:
+                column_config[col] = st.column_config.Column(
+                    display_name,
+                    disabled=True
+                )
     
-    display_df = display_df[final_display_cols]
-    
-    # Add row numbers
-    display_df.insert(0, 'No.', range(1, len(display_df) + 1))
-    
-    # Display table dengan frozen header
-    html_table = create_html_table_with_frozen_header(display_df)
-    st.markdown(html_table, unsafe_allow_html=True)
-    
-    # =================================================================
-    # STEP 2: EDITABLE CONSENSUS SECTION
-    # =================================================================
-    st.markdown("---")
-    st.markdown("### ✏️ Edit Consensus Values")
-    st.markdown("*Double-click cells below to edit consensus values*")
-    
-    # Prepare dataframe untuk editing consensus saja
-    edit_consensus_df = display_df[['No.', 'sku_code', 'Product_Name', 'Brand', 'SKU_Tier', 'L3M_Avg']].copy()
-    
-    # Tambahkan consensus columns
+    # Editable consensus columns
     for month in st.session_state.adjustment_months:
         cons_col = f'Cons_{month}'
-        if cons_col in display_df.columns:
-            edit_consensus_df[cons_col] = display_df[cons_col]
+        column_config[cons_col] = st.column_config.NumberColumn(
+            f"Consensus {month}",
+            min_value=0,
+            step=1,
+            format="%d",
+            help=f"Double-click to edit consensus value for {month}"
+        )
     
-    # Column configuration
-    column_config = {
-        'No.': st.column_config.Column("No.", disabled=True),
-        'sku_code': st.column_config.TextColumn("SKU Code", disabled=True),
-        'Product_Name': st.column_config.TextColumn("Product Name", disabled=True),
-        'Brand': st.column_config.TextColumn("Brand", disabled=True),
-        'SKU_Tier': st.column_config.TextColumn("SKU Tier", disabled=True),
-        'L3M_Avg': st.column_config.NumberColumn("L3M Avg", format="%d", disabled=True),
-    }
+    # =================================================================
+    # DISPLAY EDITABLE TABLE
+    # =================================================================
     
-    # Add consensus columns config
-    for month in st.session_state.adjustment_months:
-        cons_col = f'Cons_{month}'
-        if cons_col in edit_consensus_df.columns:
-            column_config[cons_col] = st.column_config.NumberColumn(
-                f"Consensus {month}",
-                min_value=0,
-                step=1,
-                format="%d",
-                help=f"Edit consensus value for {month}"
-            )
+    st.markdown("#### 📋 Edit Consensus Values in Table")
+    st.markdown("*Double-click on any cell in the Consensus columns to edit*")
     
-    # Display data editor
+    # Display the data editor - INI TABEL UTAMA YANG BISA DIEDIT
     edited_df = st.data_editor(
-        edit_consensus_df,
+        edit_df[display_cols],
         column_config=column_config,
         use_container_width=True,
-        height=400,
-        key="consensus_editor_final",
-        num_rows="fixed"
+        height=600,
+        key="main_forecast_editor",
+        num_rows="fixed",
+        hide_index=True
     )
     
     # =================================================================
-    # STEP 3: SAVE & ACTIONS
+    # CALCULATE UPDATED PERCENTAGES
     # =================================================================
+    
+    # Update percentage columns berdasarkan edited consensus values
+    for month in st.session_state.adjustment_months:
+        cons_col = f'Cons_{month}'
+        pct_col = f'{month}_%'
+        
+        if cons_col in edited_df.columns and 'L3M_Avg' in edited_df.columns:
+            edited_df[pct_col] = (edited_df[cons_col] / 
+                                 edited_df['L3M_Avg'].replace(0, np.nan) * 100).round(1)
+            edited_df[pct_col] = edited_df[pct_col].replace([np.inf, -np.inf], 0).fillna(100)
+    
+    # =================================================================
+    # DISPLAY UPDATED VIEW (READ-ONLY)
+    # =================================================================
+    
     st.markdown("---")
+    st.markdown("#### 📊 Updated View with Changes")
+    
+    # Buat formatted display untuk updated view
+    display_view_df = edited_df.copy()
+    
+    # Format columns untuk display
+    for month in st.session_state.adjustment_months:
+        pct_col = f'{month}_%'
+        if pct_col in display_view_df.columns:
+            display_view_df[pct_col] = display_view_df[pct_col].apply(
+                lambda x: f"{x:.1f}%" if pd.notnull(x) else "0.0%"
+            )
+    
+    # Display dengan HTML styling
+    html_table = create_styled_html_table(display_view_df, editable_consensus=False)
+    st.markdown(html_table, unsafe_allow_html=True)
+    
+    # =================================================================
+    # SAVE & ACTIONS
+    # =================================================================
+    
+    st.markdown("---")
+    st.markdown("### 💾 Save & Actions")
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("💾 Save Consensus Values", type="primary", use_container_width=True):
+        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
             # Simpan ke session state
-            st.session_state.edited_consensus = edited_df.copy()
+            st.session_state.edited_forecast_data = edited_df.copy()
             
-            # Hitung perubahan
-            changes = []
+            # Calculate changes vs original
+            changes_summary = []
             for month in st.session_state.adjustment_months:
                 cons_col = f'Cons_{month}'
-                if cons_col in edited_df.columns:
-                    original_total = display_df[cons_col].sum()
+                if cons_col in edited_df.columns and cons_col in edit_df.columns:
+                    original_total = edit_df[cons_col].sum()
                     new_total = edited_df[cons_col].sum()
                     change = new_total - original_total
                     change_pct = (change / original_total * 100) if original_total > 0 else 0
                     
-                    changes.append({
+                    changes_summary.append({
                         'Month': month,
                         'Original': f"{original_total:,.0f}",
                         'New': f"{new_total:,.0f}",
@@ -1006,101 +1024,68 @@ with tab1:
                         'Change %': f"{change_pct:+.1f}%"
                     })
             
-            st.session_state.consensus_changes = changes
-            st.success("✅ Consensus values saved!")
+            st.session_state.forecast_changes = changes_summary
+            st.success("✅ All changes saved successfully!")
             
-            # Tampilkan summary
-            if changes:
+            # Show summary
+            if changes_summary:
                 with st.expander("📊 View Changes Summary", expanded=True):
-                    changes_df = pd.DataFrame(changes)
+                    changes_df = pd.DataFrame(changes_summary)
                     st.dataframe(changes_df, use_container_width=True, hide_index=True)
                     
                     # Total changes
-                    total_change = sum([c['Change'] for c in changes])
+                    total_change = sum([int(c['Change'].replace(',', '').replace('+', '')) for c in changes_summary])
                     st.metric("Total Change", f"{total_change:+,.0f} units")
     
     with col2:
-        if st.button("📊 Compare with Original", use_container_width=True):
-            if 'consensus_changes' in st.session_state:
-                changes_df = pd.DataFrame(st.session_state.consensus_changes)
-                
-                # Create comparison chart
-                fig = px.bar(
-                    changes_df,
-                    x='Month',
-                    y='Change',
-                    title="Changes vs Original Forecast",
-                    color='Change',
-                    color_continuous_scale='RdYlGn',
-                    text='Change'
-                )
-                
-                fig.update_layout(
-                    height=300,
-                    showlegend=False,
-                    yaxis_title="Change (units)"
-                )
-                
-                fig.update_traces(texttemplate='%{text:+,}', textposition='outside')
-                
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No changes saved yet. Save consensus values first.")
+        if st.button("📤 Export Edited Data", use_container_width=True):
+            csv = edited_df.to_csv(index=False)
+            st.download_button(
+                label="⬇️ Download CSV",
+                data=csv,
+                file_name=f"edited_forecast_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                key="download_edited"
+            )
     
     with col3:
-        if st.button("🔄 Reset to Original", type="secondary", use_container_width=True):
-            if 'edited_consensus' in st.session_state:
-                del st.session_state.edited_consensus
-            if 'consensus_changes' in st.session_state:
-                del st.session_state.consensus_changes
+        if st.button("🔄 Reset All Changes", type="secondary", use_container_width=True):
+            if 'edited_forecast_data' in st.session_state:
+                del st.session_state.edited_forecast_data
+            if 'forecast_changes' in st.session_state:
+                del st.session_state.forecast_changes
             st.rerun()
     
     # =================================================================
-    # STEP 4: DOWNLOAD OPTIONS
+    # QUICK STATS AFTER EDITING
     # =================================================================
+    
     st.markdown("---")
-    st.markdown("### 📤 Export Options")
+    st.markdown("#### 📈 Quick Stats After Editing")
     
-    col_d1, col_d2, col_d3 = st.columns(3)
+    stats_cols = st.columns(len(st.session_state.adjustment_months) + 2)
     
-    with col_d1:
-        if st.button("⬇️ Download Current View", use_container_width=True):
-            csv = display_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download CSV",
-                data=csv,
-                file_name=f"forecast_view_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+    with stats_cols[0]:
+        total_skus = len(edited_df)
+        st.metric("Total SKUs", f"{total_skus:,}")
     
-    with col_d2:
-        if st.button("⬇️ Download Consensus Only", use_container_width=True):
-            if 'edited_consensus' in st.session_state:
-                csv = st.session_state.edited_consensus.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=csv,
-                    file_name=f"consensus_values_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
-            else:
-                csv = edited_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=csv,
-                    file_name=f"consensus_values_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
+    with stats_cols[1]:
+        if 'L3M_Avg' in edited_df.columns:
+            l3m_avg = edited_df['L3M_Avg'].astype(float).mean()
+            st.metric("Avg L3M Sales", f"{l3m_avg:,.0f}")
     
-    with col_d3:
-        if st.button("⬇️ Download Full Data", use_container_width=True):
-            csv = all_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download CSV",
-                data=csv,
-                file_name=f"full_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+    # Stats per bulan
+    for i, month in enumerate(st.session_state.adjustment_months):
+        cons_col = f'Cons_{month}'
+        if cons_col in edited_df.columns:
+            with stats_cols[i+2]:
+                month_total = edited_df[cons_col].astype(float).sum()
+                if 'L3M_Avg' in edited_df.columns:
+                    baseline_total = edited_df['L3M_Avg'].astype(float).sum() / 3
+                    growth = ((month_total - baseline_total) / baseline_total * 100) if baseline_total > 0 else 0
+                    st.metric(f"{month} Total", f"{month_total:,.0f}", f"{growth:+.1f}%")
+                else:
+                    st.metric(f"{month} Total", f"{month_total:,.0f}")
 
 # ============================================================================
 # TAB 2: ANALYTICS DASHBOARD
@@ -1111,15 +1096,15 @@ with tab2:
     # Gunakan edited consensus data jika ada
     results_df = all_df.copy()
     
-    if 'edited_consensus' in st.session_state:
-        consensus_df = st.session_state.edited_consensus.copy()
+    if 'edited_forecast_data' in st.session_state:
+        # Map edited data back ke results_df
+        edited_data = st.session_state.edited_forecast_data
         
-        # Map consensus values back ke full dataset
         for month in st.session_state.adjustment_months:
             cons_col = f'Cons_{month}'
-            if cons_col in consensus_df.columns:
+            if cons_col in edited_data.columns:
                 # Create mapping dari sku_code ke consensus value
-                consensus_map = dict(zip(consensus_df['sku_code'], consensus_df[cons_col]))
+                consensus_map = dict(zip(edited_data['sku_code'], edited_data[cons_col]))
                 results_df[cons_col] = results_df['sku_code'].map(consensus_map).fillna(results_df[month])
     else:
         # Initialize consensus columns as same as ROFO
@@ -1159,90 +1144,108 @@ with tab2:
                 total_baseline = results_df['L3M_Avg'].sum() if 'L3M_Avg' in results_df.columns else 0
                 total_growth = ((total_consensus - total_baseline) / total_baseline * 100).round(1) if total_baseline > 0 else 0
                 st.metric(f"Total {month} Growth", f"{total_growth:+.1f}%")
-            else:
-                st.metric(f"Total {month}", "N/A")
     
     # Show changes summary jika ada
-    if 'consensus_changes' in st.session_state:
+    if 'forecast_changes' in st.session_state:
         st.markdown("---")
         st.markdown("#### 📝 Consensus Changes Summary")
         
-        changes_df = pd.DataFrame(st.session_state.consensus_changes)
-        
-        # Format untuk display
-        display_changes = changes_df.copy()
-        display_changes['Original'] = display_changes['Original']
-        display_changes['New'] = display_changes['New']
-        display_changes['Change'] = display_changes['Change']
-        display_changes['Change %'] = display_changes['Change %']
+        changes_df = pd.DataFrame(st.session_state.forecast_changes)
         
         # Display
-        st.dataframe(display_changes[['Month', 'Original', 'New', 'Change', 'Change %']].rename(
+        st.dataframe(changes_df[['Month', 'Original', 'New', 'Change', 'Change %']].rename(
             columns={'Month': 'Month'}
         ), use_container_width=True, hide_index=True)
     
     # =================================================================
-    # MONTHLY SUMMARY TABLE
+    # VISUAL ANALYTICS
     # =================================================================
     st.markdown("---")
-    st.markdown("#### 📈 Monthly Volume Summary")
+    st.markdown("### 📊 Visual Analytics")
     
-    # Prepare monthly summary data
-    summary_data = []
+    # Prepare data untuk charts
+    chart_data = []
     
-    # Include semua bulan: adjustment
-    all_display_months = [f'Cons_{m}' for m in st.session_state.adjustment_months]
-    all_display_months = [m for m in all_display_months if m in results_df.columns]
-    
-    for month in all_display_months:
-        month_name = month.replace('Cons_', '')
-        total_qty = results_df[month].sum()
-        
-        # Calculate growth vs L3M untuk consensus months
-        growth_pct = None
-        if month.startswith('Cons_') and 'L3M_Avg' in results_df.columns:
-            growth_pct = ((results_df[month].sum() - results_df['L3M_Avg'].sum()) / 
-                         results_df['L3M_Avg'].sum() * 100).round(1)
-        
-        summary_data.append({
-            'Month': month_name,
-            'Total Volume': total_qty,
-            'Growth vs L3M': growth_pct
+    # Actual sales data
+    if 'L3M_Avg' in results_df.columns:
+        chart_data.append({
+            'Period': 'L3M Avg',
+            'Value': results_df['L3M_Avg'].sum() / 3,  # Monthly average
+            'Type': 'Actual'
         })
     
-    if summary_data:
-        summary_df = pd.DataFrame(summary_data)
+    # Consensus data
+    for month in st.session_state.adjustment_months:
+        cons_col = f'Cons_{month}'
+        if cons_col in results_df.columns:
+            chart_data.append({
+                'Period': month,
+                'Value': results_df[cons_col].sum(),
+                'Type': 'Consensus'
+            })
+    
+    if chart_data:
+        chart_df = pd.DataFrame(chart_data)
         
-        # Format untuk display
-        display_summary = summary_df.copy()
-        display_summary['Total Volume'] = display_summary['Total Volume'].apply(lambda x: f"{x:,.0f}")
-        display_summary['Growth vs L3M'] = display_summary['Growth vs L3M'].apply(
-            lambda x: f"{x:+.1f}%" if pd.notnull(x) else "N/A"
-        )
-        
-        # Display summary table
-        col1, col2 = st.columns([3, 2])
+        # Chart 1: Bar chart
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.dataframe(display_summary, use_container_width=True, hide_index=True)
+            st.markdown("#### 📈 Monthly Volume Comparison")
+            
+            fig = px.bar(
+                chart_df,
+                x='Period',
+                y='Value',
+                color='Type',
+                title="Monthly Sales vs Consensus",
+                color_discrete_map={'Actual': '#10B981', 'Consensus': '#3B82F6'}
+            )
+            
+            fig.update_layout(
+                height=400,
+                showlegend=True,
+                plot_bgcolor='white',
+                yaxis=dict(
+                    title="Volume (units)", 
+                    gridcolor='#E5E7EB',
+                    tickformat=',.0f'
+                )
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Key metrics card
-            st.markdown("#### 🎯 Key Metrics")
+            st.markdown("#### 📊 Brand Distribution")
             
-            # Calculate averages
-            growth_values = summary_df['Growth vs L3M'].dropna()
-            if not growth_values.empty:
-                avg_growth = growth_values.mean()
-                st.metric("Avg Growth vs L3M", f"{avg_growth:+.1f}%")
-            
-            # Stock metrics
-            if 'Month_Cover' in results_df.columns:
-                high_cover_count = len(results_df[results_df['Month_Cover'] > 1.5])
-                st.metric("SKUs with Month Cover > 1.5", f"{high_cover_count:,}")
+            if 'Brand' in results_df.columns:
+                # Aggregate by brand
+                brand_data = []
+                for brand in results_df['Brand'].unique():
+                    brand_total = 0
+                    for month in st.session_state.adjustment_months:
+                        cons_col = f'Cons_{month}'
+                        if cons_col in results_df.columns:
+                            brand_total += results_df.loc[results_df['Brand'] == brand, cons_col].sum()
+                    
+                    brand_data.append({
+                        'Brand': brand,
+                        'Total': brand_total
+                    })
                 
-                avg_month_cover_all = results_df['Month_Cover'].mean()
-                st.metric("Overall Avg Month Cover", f"{avg_month_cover_all:.1f}")
+                brand_df = pd.DataFrame(brand_data)
+                brand_df = brand_df.sort_values('Total', ascending=False).head(10)
+                
+                fig = px.pie(
+                    brand_df,
+                    values='Total',
+                    names='Brand',
+                    title="Top 10 Brands by Consensus Volume",
+                    hole=0.4
+                )
+                
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
 # TAB 3: FOCUS AREAS
@@ -1250,11 +1253,24 @@ with tab2:
 with tab3:
     st.markdown("### 🎯 Focus Areas & Action Items")
     
+    # Gunakan edited data jika ada
+    focus_df = all_df.copy()
+    
+    if 'edited_forecast_data' in st.session_state:
+        # Update dengan edited data
+        edited_data = st.session_state.edited_forecast_data
+        for month in st.session_state.adjustment_months:
+            cons_col = f'Cons_{month}'
+            if cons_col in edited_data.columns:
+                focus_df[cons_col] = focus_df['sku_code'].map(
+                    dict(zip(edited_data['sku_code'], edited_data[cons_col]))
+                ).fillna(focus_df[month])
+    
     # Generate alerts
     alerts_data = {}
     
-    if 'Month_Cover' in all_df.columns:
-        high_cover_skus = all_df[all_df['Month_Cover'] > 1.5].sort_values('Month_Cover', ascending=False)
+    if 'Month_Cover' in focus_df.columns:
+        high_cover_skus = focus_df[focus_df['Month_Cover'] > 1.5].sort_values('Month_Cover', ascending=False)
         alerts_data['high_cover'] = {
             'count': len(high_cover_skus),
             'data': high_cover_skus,
@@ -1263,9 +1279,9 @@ with tab3:
             'color': '#EF4444'
         }
     
-    if 'L3M_Avg' in all_df.columns and 'Feb-26' in all_df.columns:
-        low_growth_mask = (all_df['Feb-26'] / all_df['L3M_Avg'].replace(0, np.nan) * 100) < 90
-        low_growth_skus = all_df[low_growth_mask].sort_values('L3M_Avg')
+    if 'L3M_Avg' in focus_df.columns and 'Feb-26' in focus_df.columns:
+        low_growth_mask = (focus_df['Feb-26'] / focus_df['L3M_Avg'].replace(0, np.nan) * 100) < 90
+        low_growth_skus = focus_df[low_growth_mask].sort_values('L3M_Avg')
         alerts_data['low_growth'] = {
             'count': len(low_growth_skus),
             'data': low_growth_skus,
@@ -1274,8 +1290,8 @@ with tab3:
             'color': '#F59E0B'
         }
         
-        high_growth_mask = (all_df['Feb-26'] / all_df['L3M_Avg'].replace(0, np.nan) * 100) > 130
-        high_growth_skus = all_df[high_growth_mask].sort_values('Feb-26', ascending=False)
+        high_growth_mask = (focus_df['Feb-26'] / focus_df['L3M_Avg'].replace(0, np.nan) * 100) > 130
+        high_growth_skus = focus_df[high_growth_mask].sort_values('Feb-26', ascending=False)
         alerts_data['high_growth'] = {
             'count': len(high_growth_skus),
             'data': high_growth_skus,
@@ -1284,8 +1300,8 @@ with tab3:
             'color': '#10B981'
         }
     
-    if 'Stock_Qty' in all_df.columns and 'L3M_Avg' in all_df.columns:
-        low_stock_skus = all_df[all_df['Stock_Qty'] < all_df['L3M_Avg']].sort_values('Stock_Qty')
+    if 'Stock_Qty' in focus_df.columns and 'L3M_Avg' in focus_df.columns:
+        low_stock_skus = focus_df[focus_df['Stock_Qty'] < focus_df['L3M_Avg']].sort_values('Stock_Qty')
         alerts_data['low_stock'] = {
             'count': len(low_stock_skus),
             'data': low_stock_skus,
@@ -1398,3 +1414,33 @@ with footer_cols[2]:
         <p>{datetime.now().strftime('%H:%M:%S')}</p>
     </div>
     """, unsafe_allow_html=True)
+
+# ============================================================================
+# SIDEBAR (OPTIONAL)
+# ============================================================================
+with st.sidebar:
+    st.markdown("### ⚙️ Settings")
+    
+    # Auto-refresh
+    auto_refresh = st.checkbox("Auto-refresh data", value=False)
+    
+    # Data range
+    st.markdown("---")
+    st.markdown("#### 📅 Data Range")
+    
+    start_date = st.date_input("From", value=datetime(2025, 10, 1).date())
+    end_date = st.date_input("To", value=datetime(2026, 4, 30).date())
+    
+    # Export options
+    st.markdown("---")
+    st.markdown("#### 📤 Quick Export")
+    
+    if st.button("Export Current View", use_container_width=True):
+        st.info("Use the export buttons in Tab 1")
+    
+    # Debug info
+    st.markdown("---")
+    with st.expander("Debug Info"):
+        st.write(f"Data shape: {all_df.shape}")
+        st.write(f"SKUs loaded: {len(all_df)}")
+        st.write(f"Adjustment months: {st.session_state.adjustment_months}")
