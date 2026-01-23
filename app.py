@@ -67,10 +67,16 @@ class GSheetConnector:
     def get_sheet_data(self, sheet_name):
         try:
             worksheet = self.sheet.worksheet(sheet_name)
-            # UNFORMATTED agar angka 12,402 terbaca 12402 (bukan text)
-            data = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE') 
+            
+            # Untuk stock_onhand, gunakan UNFORMATTED_VALUE
+            if sheet_name == "stock_onhand":
+                data = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE')
+            else:
+                data = worksheet.get_all_records(value_render_option='FORMATTED_VALUE')
+                
             return pd.DataFrame(data)
-        except:
+        except Exception as e:
+            st.error(f"Error loading {sheet_name}: {str(e)}")
             return pd.DataFrame()
 
     def save_data(self, df, sheet_name):
