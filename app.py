@@ -523,3 +523,4 @@ with tab2:
                 fmt_df[c] = fmt_df[c].apply(lambda x: f"Rp {x:,.0f}")
                 
         st.dataframe(fmt_df, hide_index=True, use_container_width=True)
+
