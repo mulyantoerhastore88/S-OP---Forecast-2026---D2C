@@ -381,11 +381,10 @@ with tab1:
     # Calculate Pct
     edit_df = calculate_percentage_columns(edit_df)
 
-    # 3. Define Column Order (EXACTLY AS REQUESTED)
-    # Metadata -> Sales History -> Metrics -> Original Forecast -> Percentage -> Consensus
+    # 3. Define Column Order
     ag_cols = ['sku_code', 'Product_Name', 'Brand', 'SKU_Tier']
     
-    # Sales History (3 bulan terakhir yg ada datanya)
+    # Sales History
     sales_cols = [c for c in edit_df.columns if '-' in c and c not in st.session_state.adjustment_months and 'Cons' not in c and '%' not in c][-3:]
     ag_cols.extend(sales_cols)
     
@@ -404,13 +403,33 @@ with tab1:
 
     ag_df = edit_df[ag_cols].copy()
 
-    # 4. JS Styling
+    # 4. JS Styling (Updated with Brand Colors)
+    
+    # --- WARNA BRAND ---
+    js_brand_color = JsCode("""
+    function(params) {
+        if (!params.value) return null;
+        const brand = params.value.toLowerCase();
+        
+        if (brand.includes('acneact')) return {'backgroundColor': '#E0F2FE', 'color': '#0369A1', 'fontWeight': 'bold'}; // Sky Blue
+        if (brand.includes('truwhite')) return {'backgroundColor': '#DCFCE7', 'color': '#15803D', 'fontWeight': 'bold'}; // Green
+        if (brand.includes('hair')) return {'backgroundColor': '#FEF3C7', 'color': '#B45309', 'fontWeight': 'bold'}; // Amber
+        if (brand.includes('age')) return {'backgroundColor': '#E0E7FF', 'color': '#4338CA', 'fontWeight': 'bold'}; // Indigo
+        if (brand.includes('his')) return {'backgroundColor': '#F3E8FF', 'color': '#7E22CE', 'fontWeight': 'bold'}; // Purple
+        if (brand.includes('skinsitive')) return {'backgroundColor': '#FAE8FF', 'color': '#A21CAF', 'fontWeight': 'bold'}; // Fuchsia
+        if (brand.includes('perfect')) return {'backgroundColor': '#FFEDD5', 'color': '#C2410C', 'fontWeight': 'bold'}; // Orange
+        
+        return {'backgroundColor': '#F3F4F6', 'color': '#374151'}; // Default Grey
+    }
+    """)
+    
     js_month_cover = JsCode("""
     function(params) {
         if (params.value > 1.5) { return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'}; }
         return null;
     }
     """)
+    
     js_growth_pct = JsCode("""
     function(params) {
         if (params.value < 90) { return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'}; }
@@ -418,6 +437,7 @@ with tab1:
         return {'color': 'black'};
     }
     """)
+    
     js_editable_cell = JsCode("""
     function(params) {
         return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'color': '#1E3A8A', 'fontWeight': 'bold'};
@@ -431,6 +451,9 @@ with tab1:
     # Pin Metadata
     gb.configure_column("sku_code", pinned="left", width=100)
     gb.configure_column("Product_Name", pinned="left", width=220)
+    
+    # === APPLY BRAND COLOR ===
+    gb.configure_column("Brand", cellStyle=js_brand_color, width=120)
     
     # Numeric Formatting
     for col in ag_cols:
