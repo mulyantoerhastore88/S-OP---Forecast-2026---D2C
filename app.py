@@ -16,14 +16,14 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V4.2",
+    page_title="ERHA S&OP Dashboard V4.3",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# CSS STYLING
+# CSS STYLING (IMPROVED FOR ZOOM)
 # ============================================================================
 st.markdown("""
 <style>
@@ -37,6 +37,15 @@ st.markdown("""
     }
     .stSelectbox label { font-weight: bold; }
     div[data-testid="stMetricValue"] { font-size: 1.5rem; }
+    
+    /* CSS hack untuk memaksimalkan lebar container saat zoom out */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+        max-width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +95,7 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# 2. DATA LOADER (UPDATED WITH PRODUCT FOCUS)
+# 2. DATA LOADER
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data_with_cycle(selected_months):
@@ -119,11 +128,9 @@ def load_data_with_cycle(selected_months):
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
         
-        # Prepare ROFO (Updated to fetch Product_Focus)
+        # Prepare ROFO
         rofo_cols = valid_keys.copy()
-        
-        # Cek kolom tambahan
-        extra_cols = ['Channel', 'Product_Focus'] # LIST KOLOM TAMBAHAN DARI ROFO
+        extra_cols = ['Channel', 'Product_Focus']
         for col in extra_cols:
             if col in rofo_df.columns and col not in rofo_cols:
                 rofo_cols.append(col)
@@ -137,7 +144,6 @@ def load_data_with_cycle(selected_months):
         # Merge
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Isi blank jika Product_Focus tidak ada
         if 'Product_Focus' not in merged_df.columns:
             merged_df['Product_Focus'] = ""
         else:
@@ -250,13 +256,12 @@ if sel_cover == "Over (>1.5)": filtered_df = filtered_df[filtered_df['Month_Cove
 tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics Summary"])
 
 # ============================================================================
-# TAB 1: WORKSHEET
+# TAB 1: WORKSHEET (RESPONSIVE GRID)
 # ============================================================================
 with tab1:
     edit_df = filtered_df.copy()
     edit_df = calculate_pct(edit_df, cycle_months)
     
-    # KITA MASUKKAN Product_Focus KE AG_COLS AGAR BISA DIBACA JS
     ag_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus']
     
     hist_cols = [c for c in edit_df.columns if '-' in c and c not in cycle_months and 'Cons' not in c and '%' not in c][-3:]
@@ -270,23 +275,15 @@ with tab1:
     ag_df = edit_df[ag_cols].copy()
 
     # --- JS STYLING ---
-    
-    # 1. WARNA SKU JIKA FOCUS PRODUCT (Highlight Kuning Emas)
-    # params.data.Product_Focus mengakses data kolom lain di baris yg sama
     js_sku_focus = JsCode("""
     function(params) {
         if (params.data.Product_Focus === 'Yes') {
-            return {
-                'backgroundColor': '#FEF9C3', // Yellow 100
-                'color': '#854D0E',           // Yellow 800
-                'fontWeight': 'bold',
-                'borderLeft': '4px solid #FACC15' // Gold Bar
-            };
+            return {'backgroundColor': '#FEF9C3', 'color': '#854D0E', 'fontWeight': 'bold', 'borderLeft': '4px solid #FACC15'};
         }
         return null; 
     }
     """)
-
+    
     js_brand = JsCode("""
     function(params) {
         if (!params.value) return null;
@@ -310,7 +307,6 @@ with tab1:
     """)
     
     js_cover = JsCode("function(p) { if(p.value > 1.5) return {'backgroundColor': '#FCE7F3', 'color': '#BE185D', 'fontWeight': 'bold'}; return null; }")
-    
     js_pct = JsCode("""
     function(params) {
         if (params.value < 90) return {'backgroundColor': '#FFEDD5', 'color': '#9A3412', 'fontWeight': 'bold'};
@@ -318,44 +314,52 @@ with tab1:
         return {'color': '#374151'};
     }
     """)
-    
     js_edit = JsCode("function(p) { return {'backgroundColor': '#EFF6FF', 'border': '1px solid #93C5FD', 'fontWeight': 'bold', 'color': '#1E40AF'}; }")
 
-    # --- GRID CONFIG ---
+    # --- GRID CONFIG (RESPONSIVE SETTINGS) ---
     gb = GridOptionsBuilder.from_dataframe(ag_df)
-    gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False)
     
-    # Apply Highlight to SKU Code based on Hidden Column
-    gb.configure_column("sku_code", pinned="left", width=100, cellStyle=js_sku_focus)
+    # 1. GLOBAL SETTINGS: Row & Header Height agar tidak gepeng saat zoom out
+    gb.configure_grid_options(rowHeight=35, headerHeight=40) 
     
-    # HIDE PRODUCT FOCUS COLUMN (Data ada di grid, tapi user gak liat)
-    gb.configure_column("Product_Focus", hide=True)
+    # 2. DEFAULT COLUMN: Gunakan minWidth agar kolom tidak gepeng, dan resizable
+    gb.configure_default_column(resizable=True, filterable=True, sortable=True, editable=False, minWidth=95)
     
-    gb.configure_column("Product_Name", pinned="left", width=200)
-    gb.configure_column("Channel", pinned="left", width=100, cellStyle=js_channel)
-    gb.configure_column("Brand", cellStyle=js_brand, width=110)
-    gb.configure_column("Month_Cover", cellStyle=js_cover, width=90)
+    # 3. PINNED COLUMNS (LEFT)
+    gb.configure_column("sku_code", pinned="left", width=100, minWidth=100, cellStyle=js_sku_focus)
     
-    # Apply number format
+    # PRODUCT NAME ELASTIS: Diberi flex=1 agar memakan sisa ruang kosong saat zoom out
+    gb.configure_column("Product_Name", pinned="left", minWidth=200, flex=1)
+    
+    gb.configure_column("Channel", pinned="left", width=110, minWidth=110, cellStyle=js_channel)
+    gb.configure_column("Product_Focus", hide=True) # Hidden but active
+    
+    # 4. DATA COLUMNS
+    gb.configure_column("Brand", cellStyle=js_brand, width=120, minWidth=120)
+    gb.configure_column("Month_Cover", cellStyle=js_cover, width=100, minWidth=100)
+    
+    # Numeric Format - Gunakan minWidth yang cukup
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus'] and '%' not in c:
-            gb.configure_column(c, type=["numericColumn"], valueFormatter="x.toLocaleString()", width=95)
+            gb.configure_column(c, type=["numericColumn"], valueFormatter="x.toLocaleString()", minWidth=105)
     
+    # Percentage Columns
     for m in cycle_months:
         pct_col = f'{m}_%'
         if pct_col in ag_cols:
             gb.configure_column(pct_col, header_name=f"{m} %", type=["numericColumn"], 
-                              valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, width=85)
+                              valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
 
+    # Editable Columns (Pinned Right)
     for m in cycle_months:
         if f'Cons_{m}' in ag_cols:
             gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, 
-                                cellStyle=js_edit, width=110, pinned="right", 
+                                cellStyle=js_edit, width=115, minWidth=115, pinned="right", 
                                 type=["numericColumn"], valueFormatter="x.toLocaleString()")
 
     gb.configure_selection('single')
     
-    # Legend
+    # LEGEND
     st.markdown("""
     <div style="font-size:0.8rem; margin-bottom:5px;">
         <span style="background:#FEF9C3; color:#854D0E; padding:2px 6px; border-radius:4px; border:1px solid #FACC15"><b>★ Focus SKU</b></span>
@@ -364,8 +368,17 @@ with tab1:
     </div>
     """, unsafe_allow_html=True)
     
-    grid_res = AgGrid(ag_df, gridOptions=gb.build(), allow_unsafe_jscode=True, 
-                      update_mode=GridUpdateMode.VALUE_CHANGED, height=550, theme='alpine', key='v4_2_grid')
+    # RENDER GRID (use_container_width=True Wajib agar full screen)
+    grid_res = AgGrid(
+        ag_df, 
+        gridOptions=gb.build(), 
+        allow_unsafe_jscode=True, 
+        update_mode=GridUpdateMode.VALUE_CHANGED, 
+        height=600,  # Tinggi fix agar scroll bar vertikal muncul proporsional
+        theme='alpine', 
+        key='v4_3_grid',
+        use_container_width=True # KUNCI RESPONSIVE UTAMA
+    )
     
     updated_df = pd.DataFrame(grid_res['data'])
 
@@ -381,7 +394,6 @@ with tab1:
             if 'edited_v4' not in st.session_state: st.warning("Save locally first!")
             else:
                 with st.spinner("Pushing data..."):
-                    # Jangan lupa sertakan Product_Focus saat save balik agar tidak hilang
                     keep = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus'] + [f'Cons_{m}' for m in cycle_months]
                     final = st.session_state.edited_v4[keep].copy()
                     final['Last_Update'] = datetime.now().strftime('%Y-%m-%d %H:%M')
