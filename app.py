@@ -17,7 +17,7 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V6.1",
+    page_title="ERHA S&OP Dashboard V6.2",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -67,7 +67,7 @@ class GSheetConnector:
     def get_sheet_data(self, sheet_name):
         try:
             worksheet = self.sheet.worksheet(sheet_name)
-            # UNFORMATTED: Agar angka datang sebagai angka murni (int/float)
+            # UNFORMATTED: Agar angka 12,402.00 terbaca 12402 (Raw Number)
             data = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE') 
             return pd.DataFrame(data)
         except:
@@ -89,19 +89,19 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (REVERTED TO SAFE LOGIC)
 # ============================================================================
 def clean_currency(val):
     """
-    Membersihkan format uang tapi MEMPERTAHANKAN TITIK DESIMAL.
-    Input: "12,402.50" -> Output: 12402.5
-    Input: 12402 (int) -> Output: 12402
+    Fungsi Pembersih yang Lebih Aman:
+    1. Jika input sudah Int/Float -> Jangan diapa-apain (Langsung Return).
+    2. Jika String -> Hapus Rp, Koma, Spasi. Sisakan angka dan titik.
     """
     if pd.isna(val) or val == '': return 0
-    if isinstance(val, (int, float)): return val
+    if isinstance(val, (int, float)): return val # SAFETY FIRST
     
     val_str = str(val).strip()
-    # Hapus Rp, spasi, koma. Sisakan angka dan titik.
+    # Hapus karakter non-numeric kecuali titik
     clean_str = re.sub(r'[^0-9.]', '', val_str)
     
     try:
@@ -110,38 +110,15 @@ def clean_currency(val):
         return 0
 
 def find_matching_column(target_month, available_columns):
-    # Cari kolom yang mirip dengan 'May-26'
+    # Logika Fuzzy Match untuk nama kolom bulan
     if target_month in available_columns: return target_month
     
-    # Normalisasi: hapus spasi, strip, underscore, lowercase
     tgt = target_month.lower().replace('-', '').replace(' ', '').replace('_', '')
-    
     for col in available_columns:
-        c_clean = str(col).lower().replace('-', '').replace(' ', '').replace('_', '')
-        # Cek exact match setelah dibersihkan
-        if tgt == c_clean: return col
-        # Cek partial match (misal 'May26' ada di '01-May-26')
-        if tgt in c_clean: return col
-        
+        c = str(col).lower().replace('-', '').replace(' ', '').replace('_', '')
+        if tgt == c: return col # Exact match after cleaning
+        if tgt in c: return col # Partial match
     return None
-
-def identify_sales_columns(columns):
-    """
-    Mendeteksi kolom sales history dengan logika fuzzy yang aman.
-    Mencari nama bulan + angka tahun.
-    """
-    months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-    sales_cols = []
-    
-    for col in columns:
-        c_str = str(col).lower()
-        # Harus mengandung nama bulan DAN mengandung angka (tahun)
-        # Dan bukan kolom metrik lain (seperti Month_Cover)
-        if any(m in c_str for m in months) and any(char.isdigit() for char in c_str):
-            if 'cover' not in c_str and 'avg' not in c_str and 'qty' not in c_str:
-                sales_cols.append(col)
-                
-    return sales_cols
 
 # ============================================================================
 # DATA LOADER
@@ -154,42 +131,36 @@ def load_data_v6(start_date_str):
         rofo_df = gs.get_sheet_data("rofo_current")
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # 1. Clean Headers (Strip Whitespace)
+        # 1. Clean Headers
         for df in [sales_df, rofo_df, stock_df]:
             if not df.empty:
                 df.columns = [str(c).strip() for c in df.columns]
 
         if sales_df.empty or rofo_df.empty: return pd.DataFrame()
 
-        # 2. Generate Horizon
+        # 2. Horizon
         start_date = datetime.strptime(start_date_str, "%b-%y")
         horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
         st.session_state.horizon_months = horizon_months
 
-        # 3. Standardize Keys
+        # 3. Keys Renaming
         key_map = {'Product Name': 'Product_Name', 'Brand Group': 'Brand_Group', 'SKU Tier': 'SKU_Tier'}
         sales_df.rename(columns=key_map, inplace=True)
         rofo_df.rename(columns=key_map, inplace=True)
         
-        # Strip string content in keys to ensure merge matches
-        join_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
-        valid_keys = [k for k in join_keys if k in sales_df.columns and k in rofo_df.columns]
-        
-        for df in [sales_df, rofo_df]:
-            for k in valid_keys:
-                if df[k].dtype == 'object':
-                    df[k] = df[k].astype(str).str.strip()
+        possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
+        valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
 
-        # 4. PROCESS SALES (Fix L3M)
-        sales_cols_found = identify_sales_columns(sales_df.columns)
-        # Urutkan kolom sales jika memungkinkan (opsional, tapi bagus untuk L3M)
-        # Kita ambil 3 kolom terakhir yang ditemukan sebagai L3M
+        # 4. SALES (REVERTED LOGIC: SIMPLE DETECTION)
+        # Cari kolom yang mengandung '-' atau '/' dan angka (asumsi format bulan-tahun)
+        # Ini metode V5.7 yang terbukti jalan di data Bapak
+        sales_cols_found = [c for c in sales_df.columns if ('-' in str(c) or '/' in str(c)) and any(char.isdigit() for char in str(c))]
+        
+        st.session_state.debug_sales_cols = sales_cols_found # Debugging purpose
+        
         l3m_cols = sales_cols_found[-3:] if len(sales_cols_found) >= 3 else sales_cols_found
         
-        st.session_state.debug_sales = l3m_cols # Debug
-        
         if l3m_cols:
-            # Pastikan numerik
             for c in l3m_cols:
                 sales_df[c] = sales_df[c].apply(clean_currency)
             sales_df['L3M_Avg'] = sales_df[l3m_cols].mean(axis=1).round(0)
@@ -198,7 +169,7 @@ def load_data_v6(start_date_str):
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
 
-        # 5. PROCESS ROFO (Future)
+        # 5. ROFO
         rofo_cols_to_fetch = valid_keys.copy()
         
         # Floor Price
@@ -216,40 +187,32 @@ def load_data_v6(start_date_str):
             if extra in rofo_df.columns and extra not in rofo_cols_to_fetch:
                 rofo_cols_to_fetch.append(extra)
         
-        # Map Horizon Columns
         month_mapping = {}
-        missing_debug = []
         for m in horizon_months:
             real_col = find_matching_column(m, rofo_df.columns)
             if real_col:
                 month_mapping[m] = real_col
                 if real_col not in rofo_cols_to_fetch: rofo_cols_to_fetch.append(real_col)
-                # Clean ROFO Value
                 rofo_df[real_col] = rofo_df[real_col].apply(clean_currency)
-            else:
-                missing_debug.append(m)
-        
-        st.session_state.debug_rofo_missing = missing_debug
         
         rofo_subset = rofo_df[rofo_cols_to_fetch].copy()
-        # Rename Real Columns to Standard Format
         inv_map = {v: k for k, v in month_mapping.items()}
         rofo_subset.rename(columns=inv_map, inplace=True)
 
-        # 6. MERGE SALES + ROFO
+        # 6. MERGE
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Fill missing standard columns
-        if 'Product_Focus' not in merged_df.columns: merged_df['Product_Focus'] = ""
+        for col in ['Product_Focus', 'Channel']:
+            if col not in merged_df.columns: merged_df[col] = ""
+            else: merged_df[col] = merged_df[col].fillna("")
+            
         if 'floor_price' not in merged_df.columns: merged_df['floor_price'] = 0
-        merged_df['Product_Focus'] = merged_df['Product_Focus'].fillna("")
-        merged_df['floor_price'] = merged_df['floor_price'].fillna(0)
+        else: merged_df['floor_price'] = merged_df['floor_price'].fillna(0)
         
-        # Fill missing months with 0
         for m in horizon_months:
             if m not in merged_df.columns: merged_df[m] = 0
 
-        # 7. MERGE STOCK
+        # 7. STOCK (SAFE AGGREGATION)
         if not stock_df.empty and 'sku_code' in stock_df.columns:
             # Find Qty col
             s_cols = [c for c in stock_df.columns if 'qty' in c.lower() or 'stock' in c.lower()]
@@ -257,7 +220,6 @@ def load_data_v6(start_date_str):
             
             # Clean and Aggregate
             stock_df[tgt_col] = stock_df[tgt_col].apply(clean_currency)
-            # Pastikan sku_code string bersih
             stock_df['sku_code'] = stock_df['sku_code'].astype(str).str.strip()
             
             stock_agg = stock_df.groupby('sku_code')[tgt_col].sum().reset_index()
@@ -269,8 +231,9 @@ def load_data_v6(start_date_str):
             
         merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
 
-        # 8. METRICS (Dead Stock Logic)
-        # Jika Stock > 0 tapi L3M <= 0, Cover = 999 (Infinite)
+        # 8. METRICS (DEAD STOCK LOGIC)
+        # Jika Stock > 0 tapi L3M <= 0 -> Month Cover 999 (Infinite)
+        # Jika L3M > 0 -> Hitung normal
         mask_dead = (merged_df['Stock_Qty'] > 0) & (merged_df['L3M_Avg'] <= 0)
         mask_normal = merged_df['L3M_Avg'] > 0
         
@@ -278,7 +241,6 @@ def load_data_v6(start_date_str):
         merged_df.loc[mask_normal, 'Month_Cover'] = (merged_df.loc[mask_normal, 'Stock_Qty'] / merged_df.loc[mask_normal, 'L3M_Avg']).round(1)
         merged_df['Month_Cover'] = merged_df['Month_Cover'].fillna(0)
         
-        # Init Cycle Months (Consensus)
         cycle_months = horizon_months[:3]
         for m in cycle_months:
             merged_df[f'Cons_{m}'] = merged_df[m]
@@ -305,7 +267,6 @@ with st.sidebar:
     st.markdown("### ⚙️ Planning Cycle")
     
     curr_date = datetime.now()
-    # Opsi bulan mundur 1, maju 3
     start_list = [curr_date + relativedelta(months=i) for i in range(-1, 3)]
     option_map = {d.strftime("%b-%y"): d for d in start_list}
     default_idx = 1 if curr_date.day < 5 else 2
@@ -323,17 +284,12 @@ with st.sidebar:
     if st.button("🔄 Reload Data"): st.cache_data.clear(); st.rerun()
     
     # DEBUG INFO
-    with st.expander("🕵️ Data Debugger (Check Columns)"):
-        st.write("found Sales Cols (L3M):", st.session_state.get('debug_sales', 'None'))
-        missing = st.session_state.get('debug_rofo_missing', [])
-        if missing:
-            st.error(f"Missing ROFO Cols: {missing}")
-        else:
-            st.success("All ROFO Cols Found")
+    with st.expander("🕵️ Data Debugger"):
+        st.write("✅ Detected Sales Cols:", st.session_state.get('debug_sales_cols', 'None'))
 
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V6.1</h2>
+    <h2>📊 ERHA S&OP Dashboard V6.2</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
@@ -366,16 +322,12 @@ if sel_brand != "ALL": filtered_df = filtered_df[filtered_df['Brand'] == sel_bra
 if sel_group != "ALL": filtered_df = filtered_df[filtered_df['Brand_Group'] == sel_group]
 if sel_tier != "ALL": filtered_df = filtered_df[filtered_df['SKU_Tier'] == sel_tier]
 
-# Filter Logic V5.6
 if sel_cover == "Over (>4.0)": filtered_df = filtered_df[filtered_df['Month_Cover'] > 4.0]
 elif sel_cover == "Healthy (1-4)": filtered_df = filtered_df[(filtered_df['Month_Cover'] >= 1.0) & (filtered_df['Month_Cover'] <= 4.0)]
 elif sel_cover == "Low (<1.0)": filtered_df = filtered_df[filtered_df['Month_Cover'] < 1.0]
 
 tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics"])
 
-# ============================================================================
-# TAB 1: WORKSHEET
-# ============================================================================
 with tab1:
     edit_df = filtered_df.copy()
     edit_df = calculate_pct(edit_df, cycle_months)
@@ -383,22 +335,18 @@ with tab1:
     ag_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus', 'floor_price']
     
     # Add L3M Cols dynamically
-    hist_cols = st.session_state.get('debug_sales', [])
+    hist_cols = st.session_state.get('debug_sales_cols', [])[-3:]
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
-    
-    # Add All Horizon
     ag_cols.extend(st.session_state.horizon_months)
     ag_cols.extend([f'{m}_%' for m in cycle_months])
     ag_cols.extend([f'Cons_{m}' for m in cycle_months])
     
-    # Dedup
     ag_cols = list(dict.fromkeys(ag_cols))
     ag_cols = [c for c in ag_cols if c in edit_df.columns]
     
     ag_df = edit_df[ag_cols].copy()
 
-    # JS Code
     js_sku_focus = JsCode("function(p) { if(p.data.Product_Focus === 'Yes') return {'backgroundColor': '#CCFBF1', 'color': '#0F766E', 'fontWeight': 'bold', 'borderLeft': '4px solid #14B8A6'}; return null; }")
     js_brand = JsCode("function(p) { if(!p.value) return null; const b=p.value.toLowerCase(); if(b.includes('acne')) return {'backgroundColor':'#E0F2FE','color':'#0284C7','fontWeight':'bold'}; if(b.includes('tru')) return {'backgroundColor':'#DCFCE7','color':'#16A34A','fontWeight':'bold'}; if(b.includes('hair')) return {'backgroundColor':'#FEF3C7','color':'#D97706','fontWeight':'bold'}; if(b.includes('age')) return {'backgroundColor':'#E0E7FF','color':'#4F46E5','fontWeight':'bold'}; if(b.includes('his')) return {'backgroundColor':'#F3E8FF','color':'#7C3AED','fontWeight':'bold'}; return {'backgroundColor':'#F3F4F6'}; }")
     js_channel = JsCode("function(p) { if(!p.value) return null; if(p.value==='E-commerce') return {'color':'#EA580C','fontWeight':'bold'}; if(p.value==='Reseller') return {'color':'#059669','fontWeight':'bold'}; return null; }")
@@ -428,7 +376,6 @@ with tab1:
     gb.configure_column("Brand", cellStyle=js_brand, width=120)
     gb.configure_column("Month_Cover", cellStyle=js_cover, width=100)
     
-    # Hide Future ROFO
     for m in st.session_state.horizon_months:
         if m not in cycle_months: gb.configure_column(m, hide=True)
     
@@ -441,7 +388,6 @@ with tab1:
         if f'Cons_{m}' in ag_cols: gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, cellStyle=js_edit, width=115, pinned="right", type=["numericColumn"], valueFormatter="x.toLocaleString()")
 
     gb.configure_selection('single')
-    
     grid_res = AgGrid(ag_df, gridOptions=gb.build(), allow_unsafe_jscode=True, update_mode=GridUpdateMode.VALUE_CHANGED, height=600, theme='alpine', key='v6_worksheet', use_container_width=True)
     updated_df = pd.DataFrame(grid_res['data'])
 
@@ -468,9 +414,6 @@ with tab1:
              if f'Cons_{m}' in updated_df.columns: total += updated_df[f'Cons_{m}'].sum()
         st.metric("Total Consensus (M1-M3)", f"{total:,.0f}")
 
-# ============================================================================
-# TAB 2: ANALYTICS
-# ============================================================================
 with tab2:
     st.markdown("### 📈 Projection Analytics")
     base_df = updated_df if not updated_df.empty else filtered_df
