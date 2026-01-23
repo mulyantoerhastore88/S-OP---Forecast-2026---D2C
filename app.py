@@ -16,7 +16,7 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V5.0",
+    page_title="ERHA S&OP Dashboard V5.1",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -38,7 +38,6 @@ st.markdown("""
     .stSelectbox label { font-weight: bold; }
     div[data-testid="stMetricValue"] { font-size: 1.4rem; }
     
-    /* Responsive Container */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
@@ -95,39 +94,42 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# 2. DATA LOADER (UPDATED: LOAD 12 MONTHS + FLOOR PRICE)
+# 2. DATA LOADER (FIXED FLOOR PRICE & CLEANING)
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data_v5(start_date_str):
-    """
-    Load data for 12 months rolling from start_date
-    """
     try:
         gs = GSheetConnector()
         sales_df = gs.get_sheet_data("sales_history")
         rofo_df = gs.get_sheet_data("rofo_current")
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # 1. Generate 12 Months Horizon List
+        # 1. Horizon
         start_date = datetime.strptime(start_date_str, "%b-%y")
         horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
-        
-        # Simpan ke session untuk Tab 2
         st.session_state.horizon_months = horizon_months
         
-        # 2. Clean Columns
+        # 2. Clean Column Names
         for df in [sales_df, rofo_df, stock_df]:
             if not df.empty:
                 df.columns = [c.strip().replace(' ', '_') for c in df.columns]
-        
+
         if sales_df.empty or rofo_df.empty:
             return pd.DataFrame()
 
+        # === FIX: CLEAN FLOOR PRICE ===
+        # Hapus 'Rp', titik (ribuan), spasi
+        if 'floor_price' in rofo_df.columns:
+            # Convert ke string dulu, lalu regex replace
+            rofo_df['floor_price'] = rofo_df['floor_price'].astype(str).str.replace(r'[Rp\s.]', '', regex=True)
+            # Convert ke numeric, error jadi 0
+            rofo_df['floor_price'] = pd.to_numeric(rofo_df['floor_price'], errors='coerce').fillna(0)
+        
         # 3. Merge Logic
         possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
         valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # 4. Prepare Sales (L3M)
+        # 4. Sales
         sales_date_cols = [c for c in sales_df.columns if '-' in c]
         l3m_cols = sales_date_cols[-3:] if len(sales_date_cols) >= 3 else sales_date_cols
         
@@ -138,39 +140,46 @@ def load_data_v5(start_date_str):
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
         
-        # 5. Prepare ROFO (Fetch 12 Months + Floor Price)
+        # 5. ROFO
         rofo_cols = valid_keys.copy()
-        extra_cols = ['Channel', 'Product_Focus', 'floor_price'] # Tambah floor_price
+        extra_cols = ['Channel', 'Product_Focus', 'floor_price']
         
         for col in extra_cols:
             if col in rofo_df.columns and col not in rofo_cols:
                 rofo_cols.append(col)
             
-        # Ambil semua bulan horizon jika ada di GSheet
+        # Ambil kolom bulan horizon
+        missing_months = []
         for m in horizon_months:
             if m in rofo_df.columns:
                 rofo_cols.append(m)
+            else:
+                missing_months.append(m)
+        
+        if missing_months:
+            # Simpan info bulan yg hilang buat ditampilkan nanti (bukan error, cuma info)
+            st.session_state.missing_rofo = missing_months
+        else:
+            st.session_state.missing_rofo = []
         
         rofo_subset = rofo_df[rofo_cols].copy()
         
-        # 6. Merge Sales + ROFO
+        # 6. Merge
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Handle Missing Extra Cols
+        # Clean Extra Cols
         if 'Product_Focus' not in merged_df.columns: merged_df['Product_Focus'] = ""
         else: merged_df['Product_Focus'] = merged_df['Product_Focus'].fillna("")
         
         if 'floor_price' not in merged_df.columns: merged_df['floor_price'] = 0
-        else: 
-            # Pastikan floor_price numeric
-            merged_df['floor_price'] = pd.to_numeric(merged_df['floor_price'], errors='coerce').fillna(0)
+        else: merged_df['floor_price'] = merged_df['floor_price'].fillna(0)
 
-        # Isi bulan kosong dengan 0
+        # Isi 0 untuk bulan yg tidak ada di GSheet
         for m in horizon_months:
             if m not in merged_df.columns:
                 merged_df[m] = 0
                 
-        # 7. Merge Stock
+        # 7. Stock
         if not stock_df.empty and 'sku_code' in stock_df.columns:
             stock_col = 'Stock_Qty' if 'Stock_Qty' in stock_df.columns else stock_df.columns[1]
             merged_df = pd.merge(merged_df, stock_df[['sku_code', stock_col]], on='sku_code', how='left')
@@ -183,9 +192,7 @@ def load_data_v5(start_date_str):
         merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg'].replace(0, 1)).round(1)
         merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
         
-        # 9. Init Consensus (M1-M3 only)
-        # 3 Bulan pertama (Cycle) dibuat kolom Cons_
-        # Sisanya tidak perlu Cons_ karena pakai data asli
+        # 9. Init Consensus (Only M1-M3)
         cycle_months = horizon_months[:3]
         for m in cycle_months:
             merged_df[f'Cons_{m}'] = merged_df[m]
@@ -193,7 +200,7 @@ def load_data_v5(start_date_str):
         return merged_df
 
     except Exception as e:
-        st.error(f"Error Loading Data: {str(e)}")
+        st.error(f"Error Loading: {str(e)}")
         return pd.DataFrame()
 
 def calculate_pct(df, months):
@@ -212,14 +219,12 @@ with st.sidebar:
     st.markdown("### ⚙️ Planning Cycle")
     
     curr_date = datetime.now()
-    # Opsi pilih bulan start
     start_list = [curr_date + relativedelta(months=i) for i in range(-1, 3)]
     option_map = {d.strftime("%b-%y"): d for d in start_list}
     default_idx = 1 if curr_date.day < 5 else 2
     
     selected_start_str = st.selectbox("Forecast Start Month", options=list(option_map.keys()), index=default_idx)
     
-    # Generate Cycle (3 Bulan)
     start_date = option_map[selected_start_str]
     cycle_months = [
         (start_date).strftime("%b-%y"),
@@ -235,24 +240,22 @@ with st.sidebar:
         st.rerun()
 
 # ============================================================================
-# MAIN CONTENT
+# MAIN
 # ============================================================================
-
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V5</h2>
+    <h2>📊 ERHA S&OP Dashboard V5.1</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Load Data (Now fetches 12 months)
 all_df = load_data_v5(selected_start_str)
 
 if all_df.empty:
     st.warning("No data found.")
     st.stop()
 
-# FILTER BAR
+# FILTER
 with stylable_container(key="filters", css_styles="{background:white; padding:15px; border-radius:10px; border:1px solid #E2E8F0;}"):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -281,7 +284,7 @@ if sel_cover == "Over (>1.5)": filtered_df = filtered_df[filtered_df['Month_Cove
 tab1, tab2 = st.tabs(["📝 Forecast Worksheet (M1-M3)", "📈 Full Year Analytics (Value & Qty)"])
 
 # ============================================================================
-# TAB 1: WORKSHEET (Cycle M1-M3)
+# TAB 1: WORKSHEET
 # ============================================================================
 with tab1:
     edit_df = filtered_df.copy()
@@ -292,9 +295,9 @@ with tab1:
     
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
-    ag_cols.extend(cycle_months) # Display Original M1-M3
+    ag_cols.extend(cycle_months)
     ag_cols.extend([f'{m}_%' for m in cycle_months])
-    ag_cols.extend([f'Cons_{m}' for m in cycle_months]) # Editable M1-M3
+    ag_cols.extend([f'Cons_{m}' for m in cycle_months])
     
     ag_cols = [c for c in ag_cols if c in edit_df.columns]
     ag_df = edit_df[ag_cols].copy()
@@ -358,25 +361,20 @@ with tab1:
         st.metric("Total Consensus (M1-M3)", f"{total:,.0f}")
 
 # ============================================================================
-# TAB 2: ANALYTICS (FULL YEAR VALUE & QTY)
+# TAB 2: ANALYTICS
 # ============================================================================
 with tab2:
     st.markdown("### 📈 12-Month Projection (Volume & Value)")
     
-    # 1. Prepare Logic Data (Hybrid: Cons + ROFO)
-    # Gunakan data edited jika ada, atau filtered awal
+    if st.session_state.missing_rofo:
+        st.info(f"ℹ️ Note: Columns {st.session_state.missing_rofo} not found in GSheet, data filled with 0.")
+    
     base_df = updated_df if not updated_df.empty else filtered_df
     
     if base_df.empty:
         st.stop()
         
-    horizon = st.session_state.horizon_months # List 12 bulan
-    
-    # Kita buat kolom 'Final_Qty_{m}' dan 'Final_Val_{m}' untuk 12 bulan
-    # Logic: 
-    # M1-M3 -> Ambil dari Cons_{m}
-    # M4-M12 -> Ambil dari {m} (Raw GSheet)
-    
+    horizon = st.session_state.horizon_months
     calc_df = base_df.copy()
     
     total_qty_cols = []
@@ -386,19 +384,16 @@ with tab2:
         qty_col_name = f'Final_Qty_{m}'
         val_col_name = f'Final_Val_{m}'
         
-        # Determine Source
-        if m in cycle_months:
-            source_col = f'Cons_{m}'
-        else:
-            source_col = m
+        # Source (Consensus for first 3, ROFO for rest)
+        if m in cycle_months: source_col = f'Cons_{m}'
+        else: source_col = m
             
-        # Calculate Qty
         if source_col in calc_df.columns:
             calc_df[qty_col_name] = calc_df[source_col].fillna(0)
         else:
             calc_df[qty_col_name] = 0
             
-        # Calculate Value (Qty * Floor Price)
+        # Calc Value
         if 'floor_price' in calc_df.columns:
             calc_df[val_col_name] = calc_df[qty_col_name] * calc_df['floor_price']
         else:
@@ -407,29 +402,19 @@ with tab2:
         total_qty_cols.append(qty_col_name)
         total_val_cols.append(val_col_name)
 
-    # 2. Top Level Metrics (Full 12 Months)
     grand_total_qty = calc_df[total_qty_cols].sum().sum()
     grand_total_val = calc_df[total_val_cols].sum().sum()
     
-    # KPI Cards
     with stylable_container(key="kpi_v5", css_styles="{background-color:#F1F5F9; padding:20px; border-radius:10px; border:1px solid #CBD5E1;}"):
-        k1, k2, k3 = st.columns(3)
+        k1, k2 = st.columns(2)
         with k1:
             st.metric("12-Month Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
         with k2:
-            # Format Billions (Miliar)
             val_in_bio = grand_total_val / 1_000_000_000
             st.metric("12-Month Revenue", f"Rp {val_in_bio:,.2f} M", "Estimated @ Floor Price")
-        with k3:
-            avg_price = (grand_total_val / grand_total_qty) if grand_total_qty > 0 else 0
-            st.metric("ASP (Avg Selling Price)", f"Rp {avg_price:,.0f}", "Weighted Avg")
             
     st.markdown("---")
 
-    # 3. Dual Axis Chart (Qty vs Value)
-    st.markdown("#### 📊 Monthly Projection Trend")
-    
-    # Prepare Aggregated Data for Chart
     chart_data = []
     for m in horizon:
         q = calc_df[f'Final_Qty_{m}'].sum()
@@ -438,27 +423,9 @@ with tab2:
         
     chart_df = pd.DataFrame(chart_data)
     
-    # Plotly Combo Chart
     fig_combo = go.Figure()
-    
-    # Bar for Volume (Left Axis)
-    fig_combo.add_trace(go.Bar(
-        x=chart_df['Month'],
-        y=chart_df['Volume'],
-        name='Volume (Qty)',
-        marker_color='#3B82F6',
-        opacity=0.7
-    ))
-    
-    # Line for Value (Right Axis)
-    fig_combo.add_trace(go.Scatter(
-        x=chart_df['Month'],
-        y=chart_df['Value'],
-        name='Value (Rp)',
-        yaxis='y2',
-        line=dict(color='#EF4444', width=3),
-        mode='lines+markers'
-    ))
+    fig_combo.add_trace(go.Bar(x=chart_df['Month'], y=chart_df['Volume'], name='Volume (Qty)', marker_color='#3B82F6', opacity=0.7))
+    fig_combo.add_trace(go.Scatter(x=chart_df['Month'], y=chart_df['Value'], name='Value (Rp)', yaxis='y2', line=dict(color='#EF4444', width=3), mode='lines+markers'))
     
     fig_combo.update_layout(
         title="Volume vs Value Forecast (12 Months)",
@@ -468,27 +435,12 @@ with tab2:
         hovermode="x unified",
         height=500
     )
-    
     st.plotly_chart(fig_combo, use_container_width=True)
     
-    # 4. Breakdown Table
     with st.expander("🔎 View Breakdown by Brand (12 Months)", expanded=True):
-        # Aggregate by Brand
-        brand_agg_cols = ['Brand'] + total_val_cols
         brand_summ = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
-        
-        # Rename cols for display
         rename_map = {old: old.replace('Final_Val_', '') for old in total_val_cols}
         brand_summ.rename(columns=rename_map, inplace=True)
-        
-        # Add Total Column
         brand_summ['Total Year'] = brand_summ.iloc[:, 1:].sum(axis=1)
         brand_summ = brand_summ.sort_values('Total Year', ascending=False)
-        
-        # Format for Display
-        st.dataframe(
-            brand_summ,
-            hide_index=True,
-            use_container_width=True,
-            column_config={c: st.column_config.NumberColumn(format="Rp %.0f") for c in brand_summ.columns if c != 'Brand'}
-        )
+        st.dataframe(brand_summ, hide_index=True, use_container_width=True, column_config={c: st.column_config.NumberColumn(format="Rp %.0f") for c in brand_summ.columns if c != 'Brand'})
