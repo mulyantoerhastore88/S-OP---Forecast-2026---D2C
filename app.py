@@ -258,7 +258,16 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 all_df = load_data_v5(selected_start_str)
-if all_df.empty: st.warning("No data found."); st.stop()
+if all_df.empty: 
+    st.warning("No data found.")
+    st.stop()
+
+# PERBAIKAN DI SINI: Simpan horizon_months di session state jika belum ada
+if 'horizon_months' not in st.session_state:
+    # Jika belum di-set oleh load_data_v5, hitung ulang
+    start_date = datetime.strptime(selected_start_str, "%b-%y")
+    horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+    st.session_state.horizon_months = horizon_months
 
 with stylable_container(key="filters", css_styles="{background:white; padding:15px; border-radius:10px; border:1px solid #E2E8F0;}"):
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -279,11 +288,16 @@ with stylable_container(key="filters", css_styles="{background:white; padding:15
         sel_cover = st.selectbox("📉 Stock Cover", covers)
 
 filtered_df = all_df.copy()
-if sel_channel != "ALL" and 'Channel' in filtered_df.columns: filtered_df = filtered_df[filtered_df['Channel'] == sel_channel]
-if sel_brand != "ALL": filtered_df = filtered_df[filtered_df['Brand'] == sel_brand]
-if sel_group != "ALL": filtered_df = filtered_df[filtered_df['Brand_Group'] == sel_group]
-if sel_tier != "ALL": filtered_df = filtered_df[filtered_df['SKU_Tier'] == sel_tier]
-if sel_cover == "Over (>1.5)": filtered_df = filtered_df[filtered_df['Month_Cover'] > 1.5]
+if sel_channel != "ALL" and 'Channel' in filtered_df.columns: 
+    filtered_df = filtered_df[filtered_df['Channel'] == sel_channel]
+if sel_brand != "ALL": 
+    filtered_df = filtered_df[filtered_df['Brand'] == sel_brand]
+if sel_group != "ALL": 
+    filtered_df = filtered_df[filtered_df['Brand_Group'] == sel_group]
+if sel_tier != "ALL": 
+    filtered_df = filtered_df[filtered_df['SKU_Tier'] == sel_tier]
+if sel_cover == "Over (>1.5)": 
+    filtered_df = filtered_df[filtered_df['Month_Cover'] > 1.5]
 
 tab1, tab2 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics"])
 
@@ -296,11 +310,19 @@ with tab1:
     
     ag_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus', 'floor_price']
     
-    hist_cols = [c for c in edit_df.columns if '-' in c and c not in st.session_state.horizon_months and 'Cons' not in c and '%' not in c][-3:]
+    # PERBAIKAN: Gunakan horizon_months dari session state dengan check
+    if 'horizon_months' in st.session_state:
+        horizon_months = st.session_state.horizon_months
+    else:
+        # Fallback: hitung ulang
+        start_date = datetime.strptime(selected_start_str, "%b-%y")
+        horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+    
+    hist_cols = [c for c in edit_df.columns if '-' in c and c not in horizon_months and 'Cons' not in c and '%' not in c][-3:]
     ag_cols.extend(hist_cols)
     ag_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
     
-    ag_cols.extend(st.session_state.horizon_months) 
+    ag_cols.extend(horizon_months) 
     
     ag_cols.extend([f'{m}_%' for m in cycle_months])
     ag_cols.extend([f'Cons_{m}' for m in cycle_months])
@@ -329,16 +351,20 @@ with tab1:
     gb.configure_column("Brand", cellStyle=js_brand, width=120)
     gb.configure_column("Month_Cover", cellStyle=js_cover, width=100)
     
-    for m in st.session_state.horizon_months:
-        if m not in cycle_months: gb.configure_column(m, hide=True)
+    # PERBAIKAN: Gunakan variable horizon_months yang sudah didefinisikan
+    for m in horizon_months:
+        if m not in cycle_months: 
+            gb.configure_column(m, hide=True)
     
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus', 'floor_price'] and '%' not in c:
             gb.configure_column(c, type=["numericColumn"], valueFormatter="x.toLocaleString()", minWidth=105)
             
     for m in cycle_months:
-        if f'{m}_%' in ag_cols: gb.configure_column(f'{m}_%', header_name=f"{m} %", type=["numericColumn"], valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
-        if f'Cons_{m}' in ag_cols: gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, cellStyle=js_edit, width=115, pinned="right", type=["numericColumn"], valueFormatter="x.toLocaleString()")
+        if f'{m}_%' in ag_cols: 
+            gb.configure_column(f'{m}_%', header_name=f"{m} %", type=["numericColumn"], valueFormatter="x.toFixed(1) + '%'", cellStyle=js_pct, minWidth=90)
+        if f'Cons_{m}' in ag_cols: 
+            gb.configure_column(f'Cons_{m}', header_name=f"✏️ {m}", editable=True, cellStyle=js_edit, width=115, pinned="right", type=["numericColumn"], valueFormatter="x.toLocaleString()")
 
     gb.configure_selection('single')
     
@@ -353,7 +379,8 @@ with tab1:
             st.success("Saved!")
     with c_push:
         if st.button("☁️ Push (GSheets)", type="secondary", use_container_width=True):
-            if 'edited_v5' not in st.session_state: st.warning("Save locally first!")
+            if 'edited_v5' not in st.session_state: 
+                st.warning("Save locally first!")
             else:
                 with st.spinner("Pushing..."):
                     keep = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus'] + [f'Cons_{m}' for m in cycle_months]
@@ -361,12 +388,16 @@ with tab1:
                     final['Last_Update'] = datetime.now().strftime('%Y-%m-%d %H:%M')
                     gs = GSheetConnector()
                     ok, msg = gs.save_data(final, "consensus_rofo")
-                    if ok: st.balloons(); st.success("Done!")
-                    else: st.error(msg)
+                    if ok: 
+                        st.balloons()
+                        st.success("Done!")
+                    else: 
+                        st.error(msg)
     with c_info:
         total = 0
         for m in cycle_months:
-             if f'Cons_{m}' in updated_df.columns: total += updated_df[f'Cons_{m}'].sum()
+            if f'Cons_{m}' in updated_df.columns: 
+                total += updated_df[f'Cons_{m}'].sum()
         st.metric("Total Consensus (M1-M3)", f"{total:,.0f}")
 
 # ============================================================================
@@ -376,9 +407,15 @@ with tab2:
     st.markdown("### 📈 Projection Analytics")
     
     base_df = updated_df if not updated_df.empty else filtered_df
-    if base_df.empty: st.stop()
-        
-    full_horizon = st.session_state.horizon_months
+    if base_df.empty: 
+        st.stop()
+    
+    # PERBAIKAN: Gunakan horizon_months dari session state
+    if 'horizon_months' in st.session_state:
+        full_horizon = st.session_state.horizon_months
+    else:
+        start_date = datetime.strptime(selected_start_str, "%b-%y")
+        full_horizon = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
     
     c_view, c_year = st.columns([2, 1])
     with c_view:
@@ -392,7 +429,8 @@ with tab2:
         active_months = full_horizon
 
     calc_df = base_df.copy()
-    if 'floor_price' not in calc_df.columns: calc_df['floor_price'] = 0
+    if 'floor_price' not in calc_df.columns: 
+        calc_df['floor_price'] = 0
     
     total_qty_cols = []
     total_val_cols = []
@@ -401,8 +439,10 @@ with tab2:
         qty_col = f'Final_Qty_{m}'
         val_col = f'Final_Val_{m}'
         
-        if m in cycle_months: source_col = f'Cons_{m}'
-        else: source_col = m
+        if m in cycle_months: 
+            source_col = f'Cons_{m}'
+        else: 
+            source_col = m
             
         if source_col in calc_df.columns:
             calc_df[qty_col] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
@@ -420,8 +460,10 @@ with tab2:
     with stylable_container(key="kpi_v5", css_styles="{background-color:#F1F5F9; padding:20px; border-radius:10px; border:1px solid #CBD5E1;}"):
         k1, k2 = st.columns(2)
         period_label = "2026 Only" if show_2026_only else "12-Month"
-        with k1: st.metric(f"{period_label} Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
-        with k2: st.metric(f"{period_label} Revenue", f"Rp {grand_total_val/1_000_000_000:,.2f} M", "Estimated @ Floor Price")
+        with k1: 
+            st.metric(f"{period_label} Volume", f"{grand_total_qty:,.0f} pcs", "Forecast")
+        with k2: 
+            st.metric(f"{period_label} Revenue", f"Rp {grand_total_val/1_000_000_000:,.2f} M", "Estimated @ Floor Price")
             
     st.markdown("---")
 
