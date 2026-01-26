@@ -17,14 +17,14 @@ from streamlit_extras.stylable_container import stylable_container
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V5.5 Fix",
+    page_title="ERHA S&OP Dashboard V5.5",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# CSS STYLING
+# CSS STYLING - PERBAIKAN RESPONSIF
 # ============================================================================
 st.markdown("""
 <style>
@@ -110,8 +110,7 @@ class GSheetConnector:
     def get_sheet_data(self, sheet_name):
         try:
             worksheet = self.sheet.worksheet(sheet_name)
-            # PENTING: UNFORMATTED VALUE agar angka tidak dianggap text
-            data = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE') 
+            data = worksheet.get_all_records(value_render_option='FORMATTED_VALUE') 
             return pd.DataFrame(data)
         except:
             return pd.DataFrame()
@@ -136,15 +135,8 @@ class GSheetConnector:
 # ============================================================================
 def clean_currency(val):
     if pd.isna(val) or val == '': return 0
-    
-    # Jika sudah angka (int/float), langsung kembalikan agar desimal aman
-    if isinstance(val, (int, float)):
-        return val
-        
     val_str = str(val)
-    # PERBAIKAN DI SINI: Tambahkan titik (.) di regex agar tidak dihapus
-    # Hapus semua karakter KECUALI angka dan titik
-    clean_str = re.sub(r'[^0-9.]', '', val_str)
+    clean_str = re.sub(r'[^0-9]', '', val_str)
     try:
         return float(clean_str)
     except:
@@ -175,12 +167,10 @@ def load_data_v5(start_date_str):
                 
         if sales_df.empty or rofo_df.empty: return pd.DataFrame()
 
-        # Horizon
         start_date = datetime.strptime(start_date_str, "%b-%y")
         horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
         st.session_state.horizon_months = horizon_months
         
-        # FIX FLOOR PRICE
         if 'floor_price' in rofo_df.columns:
             rofo_df['floor_price'] = rofo_df['floor_price'].apply(clean_currency)
         else:
@@ -191,7 +181,6 @@ def load_data_v5(start_date_str):
             else:
                 rofo_df['floor_price'] = 0
 
-        # Rename Keys
         key_map = {'Product Name': 'Product_Name', 'Brand Group': 'Brand_Group', 'SKU Tier': 'SKU_Tier'}
         sales_df.rename(columns=key_map, inplace=True)
         rofo_df.rename(columns=key_map, inplace=True)
@@ -199,21 +188,15 @@ def load_data_v5(start_date_str):
         possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
         valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # Sales L3M - Logic sederhana user (Cari '-')
         sales_date_cols = [c for c in sales_df.columns if '-' in c]
         l3m_cols = sales_date_cols[-3:] if len(sales_date_cols) >= 3 else sales_date_cols
-        
         if l3m_cols:
-            # Terapkan clean_currency juga di sini agar aman
-            for c in l3m_cols:
-                sales_df[c] = sales_df[c].apply(clean_currency)
-            sales_df['L3M_Avg'] = sales_df[l3m_cols].mean(axis=1).round(0)
+            sales_df['L3M_Avg'] = sales_df[l3m_cols].replace('', 0).astype(str).applymap(clean_currency).mean(axis=1).round(0)
         else:
             sales_df['L3M_Avg'] = 0
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
         
-        # ROFO Cols
         rofo_cols_to_fetch = valid_keys.copy()
         for extra in ['Channel', 'Product_Focus', 'floor_price']:
             if extra in rofo_df.columns and extra not in rofo_cols_to_fetch:
@@ -226,8 +209,6 @@ def load_data_v5(start_date_str):
             if real_col:
                 month_mapping[m] = real_col
                 if real_col not in rofo_cols_to_fetch: rofo_cols_to_fetch.append(real_col)
-                # Clean currency for ROFO columns too
-                rofo_df[real_col] = rofo_df[real_col].apply(clean_currency)
             else:
                 missing_months.append(m)
         st.session_state.missing_months = missing_months
@@ -236,7 +217,6 @@ def load_data_v5(start_date_str):
         inv_map = {v: k for k, v in month_mapping.items()}
         rofo_subset.rename(columns=inv_map, inplace=True)
         
-        # Merge
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
         if 'Product_Focus' not in merged_df.columns: merged_df['Product_Focus'] = ""
@@ -247,24 +227,16 @@ def load_data_v5(start_date_str):
         
         for m in horizon_months:
             if m not in merged_df.columns: merged_df[m] = 0
-            # else: merged_df[m] = merged_df[m].apply(clean_currency) # Sudah diclean di atas
+            else: merged_df[m] = merged_df[m].apply(clean_currency)
 
-        # Stock
         if not stock_df.empty and 'sku_code' in stock_df.columns:
-            stock_cols = [c for c in stock_df.columns if 'qty' in c.lower() or 'stock' in c.lower()]
-            stock_col = stock_cols[0] if stock_cols else stock_df.columns[1]
-            
-            # Clean Currency (FIXED LOGIC)
-            stock_df[stock_col] = stock_df[stock_col].apply(clean_currency)
-            
+            stock_col = 'Stock_Qty' if 'Stock_Qty' in stock_df.columns else stock_df.columns[1]
             merged_df = pd.merge(merged_df, stock_df[['sku_code', stock_col]], on='sku_code', how='left')
             merged_df.rename(columns={stock_col: 'Stock_Qty'}, inplace=True)
         else:
             merged_df['Stock_Qty'] = 0
-            
-        merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
+        merged_df['Stock_Qty'] = merged_df['Stock_Qty'].apply(clean_currency)
 
-        # Metrics
         merged_df['Month_Cover'] = (merged_df['Stock_Qty'] / merged_df['L3M_Avg'].replace(0, 1)).round(1)
         merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
         
@@ -316,7 +288,7 @@ with st.sidebar:
 # ============================================================================
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V5.5 Fix</h2>
+    <h2>📊 ERHA S&OP Dashboard V5.5</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
@@ -419,7 +391,7 @@ with tab1:
     
     ag_df = edit_df[ag_cols].copy()
 
-    # JavaScript untuk styling
+    # JavaScript untuk styling - PERBAIKAN: Hanya Brand yang dapat warna
     js_sku_focus = JsCode("""
         function(p) { 
             if(p.data.Product_Focus === 'Yes') 
@@ -428,6 +400,7 @@ with tab1:
         }
     """)
     
+    # PERBAIKAN: Hanya kolom Brand yang dapat warna, Product_Name normal
     js_brand = JsCode("""
         function(p) { 
             if(!p.value) return null; 
@@ -474,34 +447,37 @@ with tab1:
         }
     """)
 
-    # Grid Options
+    # Grid Options - KONFIGURASI RESPONSIF
     gb = GridOptionsBuilder.from_dataframe(ag_df)
     
+    # PERBAIKAN: Grid options untuk responsif
     gb.configure_grid_options(
         rowHeight=35,
         headerHeight=40,
-        suppressHorizontalScroll=False,
-        domLayout='normal',
+        suppressHorizontalScroll=False,  # Izinkan scroll horizontal
+        domLayout='normal',  # 'normal' untuk fleksibilitas tinggi
         enableRangeSelection=True,
         suppressRowClickSelection=False,
         rowSelection='single',
         animateRows=True
     )
     
+    # Konfigurasi default yang fleksibel
     gb.configure_default_column(
         resizable=True,
         filterable=True,
         sortable=True,
         editable=False,
-        minWidth=80,
-        maxWidth=200,
-        flex=1,
-        suppressSizeToFit=False
+        minWidth=80,  # Lebih kecil untuk mobile
+        maxWidth=200,  # Batas maksimal
+        flex=1,  # Kolom dapat flex
+        suppressSizeToFit=False  # Izinkan size to fit
     )
     
+    # Kolom tetap di kiri - PERBAIKAN: Product_Name TANPA cellStyle js_brand
     gb.configure_column("sku_code", 
                        pinned="left", 
-                       width=90, 
+                       width=90,  # Lebih kecil
                        maxWidth=120,
                        cellStyle=js_sku_focus,
                        suppressSizeToFit=True)
@@ -510,8 +486,8 @@ with tab1:
                        pinned="left", 
                        minWidth=150,
                        maxWidth=300,
-                       flex=2, 
-                       suppressSizeToFit=False)
+                       flex=2,  # Lebih fleksibel
+                       suppressSizeToFit=False)  # TANPA styling warna brand!
     
     gb.configure_column("Channel", 
                        pinned="left", 
@@ -520,11 +496,13 @@ with tab1:
                        cellStyle=js_channel,
                        suppressSizeToFit=True)
     
+    # Kolom tersembunyi
     gb.configure_column("Product_Focus", hide=True)
     gb.configure_column("floor_price", hide=True)
     
+    # PERBAIKAN: Hanya kolom Brand yang dapat warna branding
     gb.configure_column("Brand", 
-                       cellStyle=js_brand, 
+                       cellStyle=js_brand,  # Hanya di sini!
                        width=100,
                        maxWidth=150,
                        flex=1,
@@ -538,10 +516,12 @@ with tab1:
                        valueFormatter="x.toFixed(1)",
                        suppressSizeToFit=True)
     
+    # Sembunyikan kolom bulan yang tidak dalam cycle
     for m in horizon_months:
         if m not in cycle_months: 
             gb.configure_column(m, hide=True)
     
+    # Konfigurasi kolom numerik
     numeric_columns = []
     for c in ag_cols:
         if c not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Month_Cover', 'Product_Focus', 'floor_price'] and '%' not in c:
@@ -553,7 +533,8 @@ with tab1:
                                maxWidth=120,
                                flex=1,
                                suppressSizeToFit=False)
-            
+    
+    # Kolom persentase
     for m in cycle_months:
         if f'{m}_%' in ag_cols: 
             gb.configure_column(f'{m}_%', 
@@ -577,11 +558,16 @@ with tab1:
                                valueFormatter="x.toLocaleString()",
                                suppressSizeToFit=True)
     
+    # Tambahkan seleksi
     gb.configure_selection('single', use_checkbox=False)
     
+    # PERBAIKAN: Grid yang lebih responsif
     grid_options = gb.build()
+    
+    # Tambahkan autoSize untuk kolom-kolom tertentu
     grid_options['defaultColDef']['autoSizePadding'] = 10
     
+    # Konteks responsif untuk mobile
     st.markdown("""
     <style>
         @media screen and (max-width: 768px) {
@@ -595,6 +581,7 @@ with tab1:
     </style>
     """, unsafe_allow_html=True)
     
+    # Container untuk grid dengan CSS responsif
     with stylable_container(
         key="responsive_grid",
         css_styles="""
@@ -619,12 +606,12 @@ with tab1:
             gridOptions=grid_options,
             allow_unsafe_jscode=True,
             update_mode=GridUpdateMode.VALUE_CHANGED,
-            height=550, 
+            height=550,  # Height relatif
             theme='alpine',
             key='v5_worksheet',
             use_container_width=True,
-            fit_columns_on_grid_load=True, 
-            enable_enterprise_modules=False, 
+            fit_columns_on_grid_load=True,  # Fit kolom saat load
+            enable_enterprise_modules=False,  # Nonaktifkan enterprise untuk performa
             reload_data=False,
             try_to_convert_back_to_original_types=False,
             allow_unsafe_html=True
@@ -632,6 +619,7 @@ with tab1:
     
     updated_df = pd.DataFrame(grid_res['data'])
 
+    # Bagian save dan push
     st.markdown("---")
     c_save, c_push, c_info = st.columns([1, 1, 2])
     with c_save:
