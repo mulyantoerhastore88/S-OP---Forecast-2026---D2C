@@ -1295,42 +1295,63 @@ with tab2:
             st.plotly_chart(fig, use_container_width=True)
         
         with table_col:
-            st.markdown("### 📋 Brand Summary")
+    st.markdown("### 📋 Brand Summary")
+    
+    # SIMPLIFIED VERSION: Hanya kolom penting
+    brand_summary_data = []
+    
+    for brand in brands:
+        brand_df = calc_df[calc_df['Brand'] == brand]
+        
+        brand_volume_total = 0
+        brand_revenue_total = 0
+        
+        for m in active_months:
+            qty_col = f'Final_Qty_{m}'
+            val_col = f'Final_Val_{m}'
             
-            # Create brand summary table
-            brand_summary_data = []
+            if qty_col in brand_df.columns:
+                brand_volume_total += brand_df[qty_col].sum()
             
-            for brand in brands:
-                brand_total = chart_df[chart_df['Brand'] == brand]['Volume'].sum()
-                brand_avg = brand_total / len(active_months) if active_months else 0
-                
-                # Calculate percentage of total
-                total_volume = chart_df['Volume'].sum()
-                brand_pct = (brand_total / total_volume * 100) if total_volume > 0 else 0
-                
-                brand_summary_data.append({
-                    "Brand": brand,
-                    "Total": f"{brand_total:,.0f}",
-                    "Avg/Month": f"{brand_avg:,.0f}",
-                    "Share": f"{brand_pct:.1f}%"
-                })
-            
-            # Create and display table
-            brand_summary_df = pd.DataFrame(brand_summary_data)
-            brand_summary_df = brand_summary_df.sort_values("Total", key=lambda x: x.str.replace(',', '').astype(float), ascending=False)
-            
-            # Apply some styling
-            st.dataframe(
-                brand_summary_df,
-                use_container_width=True,
-                height=500,
-                column_config={
-                    "Brand": st.column_config.TextColumn("Brand", width="medium"),
-                    "Total": st.column_config.TextColumn("Total Volume", width="small"),
-                    "Avg/Month": st.column_config.TextColumn("Avg/Month", width="small"),
-                    "Share": st.column_config.TextColumn("Share %", width="small")
-                }
-            )
+            if val_col in brand_df.columns:
+                brand_revenue_total += brand_df[val_col].sum()
+        
+        total_revenue = calc_df[total_val_cols].sum().sum() if total_val_cols else 0
+        revenue_share = (brand_revenue_total / total_revenue * 100) if total_revenue > 0 else 0
+        
+        brand_summary_data.append({
+            "Brand": brand,
+            "Volume": f"{brand_volume_total:,.0f}",
+            "Revenue": f"Rp {brand_revenue_total/1_000_000:,.1f}M",  # Dalam juta
+            "Share": f"{revenue_share:.1f}%"
+        })
+    
+    brand_summary_df = pd.DataFrame(brand_summary_data)
+    
+    # Sort by Revenue
+    def extract_revenue(value):
+        if isinstance(value, str):
+            # Extract number dari "Rp 123.4M"
+            match = re.search(r'Rp\s*([\d,.]+)M', value)
+            if match:
+                return float(match.group(1).replace(',', ''))
+        return 0
+    
+    brand_summary_df['_sort'] = brand_summary_df['Revenue'].apply(extract_revenue)
+    brand_summary_df = brand_summary_df.sort_values('_sort', ascending=False)
+    brand_summary_df = brand_summary_df.drop('_sort', axis=1)
+    
+    st.dataframe(
+        brand_summary_df,
+        use_container_width=True,
+        height=500,
+        column_config={
+            "Brand": st.column_config.TextColumn("Brand", width="medium"),
+            "Volume": st.column_config.NumberColumn("Volume", format="%d"),
+            "Revenue": st.column_config.TextColumn("Revenue (Rp)", width="medium"),
+            "Share": st.column_config.TextColumn("Share %", width="small")
+        }
+    )
     
     else:
         # Untuk view lainnya (Total Volume, Channel Comparison), tampilkan chart saja
