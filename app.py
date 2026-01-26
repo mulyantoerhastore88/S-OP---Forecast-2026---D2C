@@ -1225,16 +1225,31 @@ with tab2:
         fig.update_traces(fillcolor="rgba(30, 64, 175, 0.2)", line_width=4)
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- Insight Expander ---
+    # --- Insight Expander (FIXED) ---
     with st.expander("💡 Key Strategic Insights", expanded=True):
-        top_sku = base_df.loc[base_df['Total_Forecast'].idxmax()]
-        st.write(f"🌟 **Leading SKU:** {top_sku['Product_Name']} is driving the most volume this cycle.")
-        
-        low_stock = base_df[base_df['Month_Cover'] < 0.5].shape[0]
-        if low_stock > 0:
-            st.warning(f"⚠️ **Stock Alert:** {low_stock} SKUs are at critical stock levels (<0.5 MoS).")
+        # Cek apakah kolom Total_Forecast ada, jika tidak, kita hitung on-the-fly
+        if 'Total_Forecast' not in base_df.columns:
+            # Hitung total dari semua kolom Qty_ yang baru kita buat
+            qty_cols = [f'Qty_{m}' for m in active_months]
+            base_df['Total_Forecast_Analytic'] = base_df[qty_cols].sum(axis=1)
+            target_col = 'Total_Forecast_Analytic'
         else:
-            st.success("✅ **Inventory Health:** No critical stock-outs projected for selected filters.")
+            target_col = 'Total_Forecast'
+
+        if not base_df.empty and base_df[target_col].sum() > 0:
+            top_sku_idx = base_df[target_col].idxmax()
+            top_sku = base_df.loc[top_sku_idx]
+            
+            st.write(f"🌟 **Leading SKU:** `{top_sku['Product_Name']}` adalah pendorong volume terbesar dalam siklus ini.")
+            
+            # Tambahan insight tentang inventory
+            low_stock = base_df[base_df['Month_Cover'] < 0.5].shape[0]
+            if low_stock > 0:
+                st.warning(f"⚠️ **Stock Alert:** Ada {low_stock} SKU dengan level stok kritis (<0.5 MoS).")
+            else:
+                st.success("✅ **Inventory Health:** Tidak ada proyeksi stock-out kritis untuk filter yang dipilih.")
+        else:
+            st.info("ℹ️ Belum ada data forecast untuk dianalisis.")
 
 # ============================================================================
 # TAB 3: SUMMARY REPORTS (SIMPLIFIED)
