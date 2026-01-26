@@ -14,17 +14,17 @@ from streamlit_extras.metric_cards import style_metric_cards
 from streamlit_extras.stylable_container import stylable_container
 
 # ============================================================================
-# 1. PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================================
 st.set_page_config(
-    page_title="ERHA S&OP Dashboard V6.3",
+    page_title="ERHA S&OP Dashboard V6.4",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# 2. CSS STYLING
+# CSS STYLING
 # ============================================================================
 st.markdown("""
 <style>
@@ -46,14 +46,11 @@ st.markdown("""
         padding-right: 2rem;
         max-width: 100%;
     }
-    
-    /* AgGrid Tweaks */
-    .ag-theme-alpine { --ag-font-size: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# 3. GOOGLE SHEETS CONNECTOR
+# 1. GSHEET CONNECTOR
 # ============================================================================
 class GSheetConnector:
     def __init__(self):
@@ -77,7 +74,7 @@ class GSheetConnector:
     def get_sheet_data(self, sheet_name):
         try:
             worksheet = self.sheet.worksheet(sheet_name)
-            # Use UNFORMATTED_VALUE to get raw numbers (e.g. 12402 instead of "12,402")
+            # PENTING: UNFORMATTED value agar angka desimal terbaca apa adanya (12402.5)
             data = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE') 
             return pd.DataFrame(data)
         except:
@@ -99,23 +96,19 @@ class GSheetConnector:
             return False, str(e)
 
 # ============================================================================
-# 4. ROBUST HELPER FUNCTIONS
+# HELPER FUNCTIONS (HYBRID FIX)
 # ============================================================================
 def clean_currency(val):
     """
-    FIXED LOGIC: 
-    - Keep digits (0-9) AND dots (.) 
-    - Remove Rp, comma, spaces
-    - Prevents 12402.0 becoming 124020
+    FIXED STOCK LOGIC: 
+    Mempertahankan titik (.) untuk desimal.
+    Menghapus Rp, Koma, Spasi.
     """
     if pd.isna(val) or val == '': return 0
+    if isinstance(val, (int, float)): return val
     
-    # If already number, return safe
-    if isinstance(val, (int, float)):
-        return val
-        
     val_str = str(val).strip()
-    # Remove everything except digits and dot
+    # Hapus karakter non-numeric TAPI sisakan titik (.)
     clean_str = re.sub(r'[^0-9.]', '', val_str)
     
     try:
@@ -123,8 +116,31 @@ def clean_currency(val):
     except:
         return 0
 
+def identify_sales_columns(columns):
+    """
+    FIXED SALES LOGIC (ROBUST):
+    Mencari nama bulan (Inggris/Indo) DAN angka digit.
+    Tidak menggunakan pd.to_datetime yang strict.
+    """
+    # Kamus bulan lengkap (EN + ID)
+    months = ['jan', 'feb', 'mar', 'apr', 'may', 'mei', 'jun', 'jul', 'aug', 'agu', 'sep', 'oct', 'okt', 'nov', 'dec', 'des']
+    sales_cols = []
+    
+    for col in columns:
+        c_str = str(col).lower()
+        # Logic: Harus ada nama bulan DAN ada angka (tahun)
+        # DAN bukan kolom metrik lain
+        has_month = any(m in c_str for m in months)
+        has_digit = any(char.isdigit() for char in c_str)
+        is_metric = any(x in c_str for x in ['cover', 'avg', 'qty', 'val', 'price'])
+        
+        if has_month and has_digit and not is_metric:
+            sales_cols.append(col)
+                
+    return sales_cols
+
 def find_matching_column(target_month, available_columns):
-    """ Fuzzy match for column names (e.g. match 'May-26' with '01-May-2026') """
+    # Fuzzy match untuk ROFO Future
     if target_month in available_columns: return target_month
     
     tgt = target_month.lower().replace('-', '').replace(' ', '').replace('_', '')
@@ -133,22 +149,8 @@ def find_matching_column(target_month, available_columns):
         if tgt in c: return col
     return None
 
-def identify_sales_columns(columns):
-    """ Robust Sales Column Detector: Looks for Month Name + Digit """
-    months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-    sales_cols = []
-    
-    for col in columns:
-        c_str = str(col).lower()
-        # Criteria: Must have month name AND digit (year) AND not contain 'cover' or 'qty'
-        if any(m in c_str for m in months) and any(char.isdigit() for char in c_str):
-            if 'cover' not in c_str and 'avg' not in c_str and 'qty' not in c_str:
-                sales_cols.append(col)
-                
-    return sales_cols
-
 # ============================================================================
-# 5. MAIN DATA LOADER
+# 2. DATA LOADER
 # ============================================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data_v6(start_date_str):
@@ -158,36 +160,33 @@ def load_data_v6(start_date_str):
         rofo_df = gs.get_sheet_data("rofo_current")
         stock_df = gs.get_sheet_data("stock_onhand")
         
-        # 1. Clean Headers
+        # Clean Headers
         for df in [sales_df, rofo_df, stock_df]:
             if not df.empty:
                 df.columns = [str(c).strip() for c in df.columns]
 
         if sales_df.empty or rofo_df.empty: return pd.DataFrame()
 
-        # 2. Setup Horizon
+        # Horizon
         start_date = datetime.strptime(start_date_str, "%b-%y")
         horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
         st.session_state.horizon_months = horizon_months
 
-        # 3. Standardize Merge Keys
+        # Keys
         key_map = {'Product Name': 'Product_Name', 'Brand Group': 'Brand_Group', 'SKU Tier': 'SKU_Tier'}
         sales_df.rename(columns=key_map, inplace=True)
         rofo_df.rename(columns=key_map, inplace=True)
         
-        join_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
-        valid_keys = [k for k in join_keys if k in sales_df.columns and k in rofo_df.columns]
+        possible_keys = ['sku_code', 'Product_Name', 'Brand', 'Brand_Group', 'SKU_Tier', 'Channel']
+        valid_keys = [k for k in possible_keys if k in sales_df.columns and k in rofo_df.columns]
         
-        # Strip strings in keys to ensure matches
-        for df in [sales_df, rofo_df]:
-            for k in valid_keys:
-                if df[k].dtype == 'object':
-                    df[k] = df[k].astype(str).str.strip()
-
-        # 4. PROCESS SALES (L3M)
+        # ---------------------------------------------------------
+        # 1. PROCESS SALES (L3M) - ROBUST METHOD
+        # ---------------------------------------------------------
         sales_cols_found = identify_sales_columns(sales_df.columns)
-        st.session_state.debug_sales = sales_cols_found # For Debug UI
+        st.session_state.debug_sales = sales_cols_found
         
+        # Ambil 3 kolom terakhir sebagai L3M
         l3m_cols = sales_cols_found[-3:] if len(sales_cols_found) >= 3 else sales_cols_found
         
         if l3m_cols:
@@ -199,14 +198,15 @@ def load_data_v6(start_date_str):
             
         sales_subset = sales_df[valid_keys + ['L3M_Avg'] + l3m_cols].copy()
 
-        # 5. PROCESS ROFO (Future)
+        # ---------------------------------------------------------
+        # 2. PROCESS ROFO (Future)
+        # ---------------------------------------------------------
         rofo_cols_to_fetch = valid_keys.copy()
         
-        # Handle Floor Price
+        # Floor Price handling
         if 'floor_price' in rofo_df.columns:
             rofo_df['floor_price'] = rofo_df['floor_price'].apply(clean_currency)
         else:
-            # Try finding fuzzy match
             fp_cols = [c for c in rofo_df.columns if 'floor' in c.lower()]
             if fp_cols:
                 rofo_df.rename(columns={fp_cols[0]: 'floor_price'}, inplace=True)
@@ -218,58 +218,67 @@ def load_data_v6(start_date_str):
             if extra in rofo_df.columns and extra not in rofo_cols_to_fetch:
                 rofo_cols_to_fetch.append(extra)
         
-        # Map Horizon Columns
+        # Map Horizon Columns (Fuzzy Match)
         month_mapping = {}
         for m in horizon_months:
             real_col = find_matching_column(m, rofo_df.columns)
             if real_col:
                 month_mapping[m] = real_col
                 if real_col not in rofo_cols_to_fetch: rofo_cols_to_fetch.append(real_col)
+                # Clean ROFO Value
                 rofo_df[real_col] = rofo_df[real_col].apply(clean_currency)
         
         rofo_subset = rofo_df[rofo_cols_to_fetch].copy()
         inv_map = {v: k for k, v in month_mapping.items()}
         rofo_subset.rename(columns=inv_map, inplace=True)
 
-        # 6. MERGE SALES + ROFO
+        # ---------------------------------------------------------
+        # 3. MERGE MAIN DATA
+        # ---------------------------------------------------------
         merged_df = pd.merge(sales_subset, rofo_subset, on=valid_keys, how='inner')
         
-        # Defaults for missing data
         if 'Product_Focus' not in merged_df.columns: merged_df['Product_Focus'] = ""
-        if 'floor_price' not in merged_df.columns: merged_df['floor_price'] = 0
         merged_df['Product_Focus'] = merged_df['Product_Focus'].fillna("")
-        merged_df['floor_price'] = merged_df['floor_price'].fillna(0)
+        
+        if 'floor_price' not in merged_df.columns: merged_df['floor_price'] = 0
+        else: merged_df['floor_price'] = merged_df['floor_price'].fillna(0)
         
         for m in horizon_months:
             if m not in merged_df.columns: merged_df[m] = 0
 
-        # 7. PROCESS STOCK (AGGREGATION FIX)
+        # ---------------------------------------------------------
+        # 4. PROCESS STOCK (FIXED CLEANING & AGGREGATION)
+        # ---------------------------------------------------------
         if not stock_df.empty and 'sku_code' in stock_df.columns:
             s_cols = [c for c in stock_df.columns if 'qty' in c.lower() or 'stock' in c.lower()]
             tgt_col = s_cols[0] if s_cols else stock_df.columns[1]
             
-            # Clean Value & Strip SKU Key
+            # Clean Value (Keep Decimal)
             stock_df[tgt_col] = stock_df[tgt_col].apply(clean_currency)
+            # Strip SKU key
             stock_df['sku_code'] = stock_df['sku_code'].astype(str).str.strip()
             
-            # Aggregate Sum (Handling Duplicates)
+            # Sum per SKU (Avoid Duplicates)
             stock_agg = stock_df.groupby('sku_code')[tgt_col].sum().reset_index()
             stock_agg.rename(columns={tgt_col: 'Stock_Qty'}, inplace=True)
             
-            # Merge Left
             merged_df = pd.merge(merged_df, stock_agg, on='sku_code', how='left')
         else:
             merged_df['Stock_Qty'] = 0
             
         merged_df['Stock_Qty'] = merged_df['Stock_Qty'].fillna(0)
 
-        # 8. METRICS (DEAD STOCK LOGIC)
-        # Condition: Stock > 0 but L3M <= 0 -> Cover 999 (Infinite)
+        # ---------------------------------------------------------
+        # 5. CALCULATE METRICS (DEAD STOCK LOGIC)
+        # ---------------------------------------------------------
         mask_dead = (merged_df['Stock_Qty'] > 0) & (merged_df['L3M_Avg'] <= 0)
         mask_normal = merged_df['L3M_Avg'] > 0
         
+        # Case Dead Stock: Cover = 999
         merged_df.loc[mask_dead, 'Month_Cover'] = 999
+        # Case Normal: Stock / Sales
         merged_df.loc[mask_normal, 'Month_Cover'] = (merged_df.loc[mask_normal, 'Stock_Qty'] / merged_df.loc[mask_normal, 'L3M_Avg']).round(1)
+        # Case Else (No Stock No Sales): 0
         merged_df['Month_Cover'] = merged_df['Month_Cover'].fillna(0)
         
         # Init Cycle Cons
@@ -280,7 +289,7 @@ def load_data_v6(start_date_str):
         return merged_df
 
     except Exception as e:
-        st.error(f"Error Loading Data: {str(e)}")
+        st.error(f"Error Critical: {str(e)}")
         return pd.DataFrame()
 
 def calculate_pct(df, months):
@@ -292,7 +301,7 @@ def calculate_pct(df, months):
     return df_calc
 
 # ============================================================================
-# 6. UI LAYOUT & SIDEBAR
+# UI LAYOUT & SIDEBAR
 # ============================================================================
 with st.sidebar:
     st.image("https://www.erhagroup.com/assets/img/logo-erha.png", width=150)
@@ -316,22 +325,22 @@ with st.sidebar:
     if st.button("🔄 Reload Data"): st.cache_data.clear(); st.rerun()
     
     with st.expander("🕵️ Data Debugger"):
-        st.write("L3M Columns:", st.session_state.get('debug_sales', 'None'))
+        st.write("L3M Cols Detected:", st.session_state.get('debug_sales', 'None'))
 
 # ============================================================================
-# 7. MAIN DASHBOARD AREA
+# MAIN DASHBOARD AREA
 # ============================================================================
 st.markdown(f"""
 <div class="main-header">
-    <h2>📊 ERHA S&OP Dashboard V6.3</h2>
+    <h2>📊 ERHA S&OP Dashboard V6.4 (Hybrid Robust)</h2>
     <p>Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus)</b> + Next 9 Months (ROFO)</p>
 </div>
 """, unsafe_allow_html=True)
 
 all_df = load_data_v6(selected_start_str)
-if all_df.empty: st.warning("No data found."); st.stop()
+if all_df.empty: st.warning("No data found. Check sheet names and headers."); st.stop()
 
-# FILTER SECTION
+# FILTER
 with stylable_container(key="filters", css_styles="{background:white; padding:15px; border-radius:10px; border:1px solid #E2E8F0;}"):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -350,7 +359,6 @@ with stylable_container(key="filters", css_styles="{background:white; padding:15
         covers = ["ALL", "Over (>4.0)", "Healthy (1-4)", "Low (<1.0)"]
         sel_cover = st.selectbox("📉 Stock Cover", covers)
 
-# FILTER LOGIC
 filtered_df = all_df.copy()
 if sel_channel != "ALL" and 'Channel' in filtered_df.columns: filtered_df = filtered_df[filtered_df['Channel'] == sel_channel]
 if sel_brand != "ALL": filtered_df = filtered_df[filtered_df['Brand'] == sel_brand]
