@@ -1077,7 +1077,7 @@ with tab1:
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD - IMPROVED VERSION
+# TAB 2: ANALYTICS DASHBOARD - IMPROVED VERSION WITH REVENUE IN TABLE
 # ============================================================================
 with tab2:
     st.markdown("### 📊 Analytics Dashboard")
@@ -1148,8 +1148,7 @@ with tab2:
         total_qty_cols.append(qty_col)
         total_val_cols.append(val_col)
     
-    # PERBAIKAN 1: Hitung metrics yang benar (M1-M3 vs L3M)
-    # Get M1-M3 months (adjustment months)
+    # Hitung metrics yang benar (M1-M3 vs L3M)
     m1_m3_months = adjustment_months[:3] if len(adjustment_months) >= 3 else adjustment_months
     
     # Calculate M1-M3 totals
@@ -1162,10 +1161,10 @@ with tab2:
             m1_m3_qty += calc_df[cons_col].sum()
             m1_m3_val += calc_df[cons_col].sum() * calc_df['floor_price'].mean()
     
-    # Calculate L3M total (historical 3 months average)
+    # Calculate L3M total
     l3m_avg_qty = calc_df['L3M_Avg'].sum()
     
-    # Display KPIs - PERBAIKAN 2: Metrics yang meaningful
+    # Display KPIs - Metrics yang meaningful
     with stylable_container(
         key="analytics_kpi",
         css_styles="""
@@ -1183,7 +1182,6 @@ with tab2:
         period_label = "2026" if show_2026_only else f"{len(active_months)}-Month"
         
         with k1:
-            # PERBAIKAN: Total Volume untuk periode yang dipilih
             grand_total_qty = calc_df[total_qty_cols].sum().sum()
             st.metric(
                 f"📦 **{period_label} Volume**",
@@ -1192,7 +1190,6 @@ with tab2:
             )
         
         with k2:
-            # PERBAIKAN: Total Revenue untuk periode yang dipilih
             grand_total_val = calc_df[total_val_cols].sum().sum()
             st.metric(
                 f"💰 **{period_label} Revenue**",
@@ -1201,9 +1198,7 @@ with tab2:
             )
         
         with k3:
-            # PERBAIKAN: M1-M3 vs L3M Growth (apple to apple)
             if l3m_avg_qty > 0 and m1_m3_qty > 0:
-                # Hitung growth M1-M3 vs L3M
                 m1_m3_l3m_growth = ((m1_m3_qty / (l3m_avg_qty * len(m1_m3_months))) - 1) * 100
                 
                 st.metric(
@@ -1220,7 +1215,7 @@ with tab2:
     
     st.markdown("---")
     
-    # Prepare chart data based on view type
+    # Prepare chart data
     chart_data = []
     
     if chart_view == "Total Volume":
@@ -1260,9 +1255,8 @@ with tab2:
     
     chart_df = pd.DataFrame(chart_data)
     
-    # PERBAIKAN 3: Layout dengan Chart dan Table berdampingan
+    # Layout dengan Chart dan Table berdampingan untuk Breakdown by Brand
     if chart_view == "Breakdown by Brand":
-        # Untuk breakdown by brand, tampilkan chart dan table
         chart_col, table_col = st.columns([2, 1])
         
         with chart_col:
@@ -1295,67 +1289,68 @@ with tab2:
             st.plotly_chart(fig, use_container_width=True)
         
         with table_col:
-    st.markdown("### 📋 Brand Summary")
-    
-    # SIMPLIFIED VERSION: Hanya kolom penting
-    brand_summary_data = []
-    
-    for brand in brands:
-        brand_df = calc_df[calc_df['Brand'] == brand]
-        
-        brand_volume_total = 0
-        brand_revenue_total = 0
-        
-        for m in active_months:
-            qty_col = f'Final_Qty_{m}'
-            val_col = f'Final_Val_{m}'
+            st.markdown("### 📋 Brand Summary")
             
-            if qty_col in brand_df.columns:
-                brand_volume_total += brand_df[qty_col].sum()
+            # Hitung revenue untuk setiap brand - VERSI SEDERHANA
+            brand_summary_data = []
             
-            if val_col in brand_df.columns:
-                brand_revenue_total += brand_df[val_col].sum()
-        
-        total_revenue = calc_df[total_val_cols].sum().sum() if total_val_cols else 0
-        revenue_share = (brand_revenue_total / total_revenue * 100) if total_revenue > 0 else 0
-        
-        brand_summary_data.append({
-            "Brand": brand,
-            "Volume": f"{brand_volume_total:,.0f}",
-            "Revenue": f"Rp {brand_revenue_total/1_000_000:,.1f}M",  # Dalam juta
-            "Share": f"{revenue_share:.1f}%"
-        })
-    
-    brand_summary_df = pd.DataFrame(brand_summary_data)
-    
-    # Sort by Revenue
-    def extract_revenue(value):
-        if isinstance(value, str):
-            # Extract number dari "Rp 123.4M"
-            match = re.search(r'Rp\s*([\d,.]+)M', value)
-            if match:
-                return float(match.group(1).replace(',', ''))
-        return 0
-    
-    brand_summary_df['_sort'] = brand_summary_df['Revenue'].apply(extract_revenue)
-    brand_summary_df = brand_summary_df.sort_values('_sort', ascending=False)
-    brand_summary_df = brand_summary_df.drop('_sort', axis=1)
-    
-    st.dataframe(
-        brand_summary_df,
-        use_container_width=True,
-        height=500,
-        column_config={
-            "Brand": st.column_config.TextColumn("Brand", width="medium"),
-            "Volume": st.column_config.NumberColumn("Volume", format="%d"),
-            "Revenue": st.column_config.TextColumn("Revenue (Rp)", width="medium"),
-            "Share": st.column_config.TextColumn("Share %", width="small")
-        }
-    )
+            for brand in brands:
+                brand_df = calc_df[calc_df['Brand'] == brand]
+                
+                brand_volume_total = 0
+                brand_revenue_total = 0
+                
+                for m in active_months:
+                    qty_col = f'Final_Qty_{m}'
+                    val_col = f'Final_Val_{m}'
+                    
+                    if qty_col in brand_df.columns:
+                        brand_volume_total += brand_df[qty_col].sum()
+                    
+                    if val_col in brand_df.columns:
+                        brand_revenue_total += brand_df[val_col].sum()
+                
+                # Hitung percentage share
+                total_revenue = calc_df[total_val_cols].sum().sum() if total_val_cols else 0
+                revenue_share = (brand_revenue_total / total_revenue * 100) if total_revenue > 0 else 0
+                
+                brand_summary_data.append({
+                    "Brand": brand,
+                    "Volume": f"{brand_volume_total:,.0f}",
+                    "Revenue": f"Rp {brand_revenue_total/1_000_000:,.1f}M",
+                    "Share": f"{revenue_share:.1f}%"
+                })
+            
+            # Create DataFrame
+            brand_summary_df = pd.DataFrame(brand_summary_data)
+            
+            # Sort by Revenue (convert ke numeric)
+            def extract_revenue(value):
+                if isinstance(value, str):
+                    match = re.search(r'Rp\s*([\d,.]+)M', value)
+                    if match:
+                        return float(match.group(1).replace(',', ''))
+                return 0
+            
+            brand_summary_df['_sort'] = brand_summary_df['Revenue'].apply(extract_revenue)
+            brand_summary_df = brand_summary_df.sort_values('_sort', ascending=False)
+            brand_summary_df = brand_summary_df.drop('_sort', axis=1)
+            
+            # Display table
+            st.dataframe(
+                brand_summary_df,
+                use_container_width=True,
+                height=500,
+                column_config={
+                    "Brand": st.column_config.TextColumn("Brand", width="medium"),
+                    "Volume": st.column_config.TextColumn("Volume", width="small"),
+                    "Revenue": st.column_config.TextColumn("Revenue (Rp)", width="medium"),
+                    "Share": st.column_config.TextColumn("Share %", width="small")
+                }
+            )
     
     else:
-        # Untuk view lainnya (Total Volume, Channel Comparison), tampilkan chart saja
-        # Create chart
+        # Untuk Total Volume dan Channel Comparison
         fig = go.Figure()
         
         if chart_view == "Total Volume":
@@ -1368,7 +1363,7 @@ with tab2:
                 hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<extra></extra>'
             ))
             
-            # Add L3M average line for reference
+            # Add L3M average line
             if l3m_avg_qty > 0:
                 fig.add_hline(
                     y=l3m_avg_qty,
@@ -1403,14 +1398,13 @@ with tab2:
             height=500
         )
         
-        # Display chart
         st.plotly_chart(fig, use_container_width=True)
     
-    # PERBAIKAN 4: Tambah detailed table di expander
+    # Detailed monthly data di expander
     with st.expander("📋 **View Detailed Monthly Data**", expanded=False):
-        # Create pivot table for monthly data
         if chart_view == "Breakdown by Brand":
-            pivot_df = chart_df.pivot_table(
+            # Buat pivot table untuk volume
+            volume_pivot = chart_df.pivot_table(
                 index='Brand',
                 columns='Month',
                 values='Volume',
@@ -1418,14 +1412,53 @@ with tab2:
                 fill_value=0
             ).reset_index()
             
-            # Add total column
-            pivot_df['Total'] = pivot_df.iloc[:, 1:].sum(axis=1)
-            pivot_df = pivot_df.sort_values('Total', ascending=False)
+            # Hitung revenue untuk pivot table
+            revenue_data = []
+            for brand in brands:
+                brand_df = calc_df[calc_df['Brand'] == brand]
+                brand_revenues = {}
+                
+                for m in active_months:
+                    val_col = f'Final_Val_{m}'
+                    if val_col in brand_df.columns:
+                        brand_revenues[m] = brand_df[val_col].sum()
+                    else:
+                        brand_revenues[m] = 0
+                
+                revenue_data.append({'Brand': brand, **brand_revenues})
             
-            # Format numbers
-            for col in pivot_df.columns:
-                if col != 'Brand':
-                    pivot_df[col] = pivot_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "0")
+            revenue_pivot = pd.DataFrame(revenue_data)
+            
+            # Gabungkan volume dan revenue
+            tab1, tab2 = st.tabs(["📦 Volume by Month", "💰 Revenue by Month"])
+            
+            with tab1:
+                volume_pivot['Total Volume'] = volume_pivot.iloc[:, 1:].sum(axis=1)
+                volume_pivot = volume_pivot.sort_values('Total Volume', ascending=False)
+                
+                # Format numbers
+                for col in volume_pivot.columns:
+                    if col != 'Brand':
+                        if col == 'Total Volume':
+                            volume_pivot[col] = volume_pivot[col].apply(lambda x: f"{x:,.0f}")
+                        else:
+                            volume_pivot[col] = volume_pivot[col].apply(lambda x: f"{x:,.0f}")
+                
+                st.dataframe(volume_pivot, use_container_width=True, height=400)
+            
+            with tab2:
+                revenue_pivot['Total Revenue'] = revenue_pivot.iloc[:, 1:].sum(axis=1)
+                revenue_pivot = revenue_pivot.sort_values('Total Revenue', ascending=False)
+                
+                # Format revenue numbers
+                for col in revenue_pivot.columns:
+                    if col != 'Brand':
+                        if col == 'Total Revenue':
+                            revenue_pivot[col] = revenue_pivot[col].apply(lambda x: f"Rp {x:,.0f}")
+                        else:
+                            revenue_pivot[col] = revenue_pivot[col].apply(lambda x: f"Rp {x:,.0f}")
+                
+                st.dataframe(revenue_pivot, use_container_width=True, height=400)
         
         elif chart_view == "Channel Comparison":
             pivot_df = chart_df.pivot_table(
@@ -1442,21 +1475,33 @@ with tab2:
             for col in pivot_df.columns:
                 if col != 'Channel':
                     pivot_df[col] = pivot_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "0")
+            
+            st.dataframe(pivot_df, use_container_width=True, height=400)
         
         else:  # Total Volume
             monthly_totals = chart_df.groupby('Month')['Volume'].sum().reset_index()
             monthly_totals = monthly_totals.sort_values('Month', key=lambda x: x.apply(parse_month_year))
             
-            # Calculate cumulative
-            monthly_totals['Cumulative'] = monthly_totals['Volume'].cumsum()
+            # Hitung revenue juga
+            monthly_revenue = []
+            for m in active_months:
+                val_col = f'Final_Val_{m}'
+                if val_col in calc_df.columns:
+                    monthly_revenue.append(calc_df[val_col].sum())
+                else:
+                    monthly_revenue.append(0)
+            
+            monthly_totals['Revenue'] = monthly_revenue
+            monthly_totals['Cumulative Volume'] = monthly_totals['Volume'].cumsum()
+            monthly_totals['Cumulative Revenue'] = monthly_totals['Revenue'].cumsum()
             
             # Format
             monthly_totals['Volume'] = monthly_totals['Volume'].apply(lambda x: f"{x:,.0f}")
-            monthly_totals['Cumulative'] = monthly_totals['Cumulative'].apply(lambda x: f"{x:,.0f}")
+            monthly_totals['Revenue'] = monthly_totals['Revenue'].apply(lambda x: f"Rp {x:,.0f}")
+            monthly_totals['Cumulative Volume'] = monthly_totals['Cumulative Volume'].apply(lambda x: f"{x:,.0f}")
+            monthly_totals['Cumulative Revenue'] = monthly_totals['Cumulative Revenue'].apply(lambda x: f"Rp {x:,.0f}")
             
-            pivot_df = monthly_totals
-        
-        st.dataframe(pivot_df, use_container_width=True, height=400)
+            st.dataframe(monthly_totals, use_container_width=True, height=400)
 
 # ============================================================================
 # TAB 3: SUMMARY REPORTS (SIMPLIFIED)
