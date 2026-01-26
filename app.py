@@ -85,35 +85,6 @@ st.markdown("""
         .main-header h2 { font-size: 1.2rem !important; }
         div[data-testid="stMetricValue"] { font-size: 1.2rem; }
     }
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #c1c1c1;
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #a1a1a1;
-    }
-    
-    /* Card styling */
-    .metric-card {
-        background: white;
-        padding: 1rem;
-        border-radius: 10px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -217,26 +188,37 @@ def find_matching_column(target_month, available_columns):
     
     return None
 
-def format_number(x):
-    """Format numbers with thousand separators"""
+def parse_month_year(date_str):
+    """Parse month-year string to datetime for sorting"""
     try:
-        if pd.isna(x):
-            return ''
-        return f"{float(x):,.0f}"
+        return datetime.strptime(date_str, "%b-%y")
     except:
-        return str(x)
+        return datetime(1900, 1, 1)  # Default for invalid dates
+
+def sort_month_columns(columns):
+    """Sort month columns chronologically (Oct-25, Nov-25, Dec-25, etc.)"""
+    month_cols = [c for c in columns if re.match(r'^[A-Za-z]{3}-\d{2}$', str(c))]
+    
+    # Sort by date
+    month_cols.sort(key=lambda x: parse_month_year(x))
+    
+    return month_cols
 
 # ============================================================================
 # 2. DATA LOADER WITH ENHANCED ERROR HANDLING
 # ============================================================================
 @st.cache_data(ttl=600, show_spinner="Loading data from Google Sheets...")
-def load_data_v5(start_date_str):
+def load_data_v5(start_date_str, all_months=False):
+    """
+    Load and process data from Google Sheets
+    all_months: If True, load all 12 months for adjustment
+    """
     try:
         gs = GSheetConnector()
         if not gs.client:
             return pd.DataFrame()
         
-        # Load data with progress indication
+        # Load data
         with st.spinner("Fetching sales history..."):
             sales_df = gs.get_sheet_data("sales_history")
         
@@ -262,8 +244,20 @@ def load_data_v5(start_date_str):
         # Calculate horizon months
         try:
             start_date = datetime.strptime(start_date_str, "%b-%y")
-            horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+            
+            if all_months:
+                # Show all 12 months for adjustment
+                horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+                adjustment_months = horizon_months  # All months are adjustable
+            else:
+                # Default: first 3 months for adjustment, next 9 for display only
+                horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+                adjustment_months = horizon_months[:3]  # Only first 3 are adjustable
+            
             st.session_state.horizon_months = horizon_months
+            st.session_state.adjustment_months = adjustment_months
+            st.session_state.all_months_mode = all_months
+            
         except:
             st.error("Invalid date format")
             return pd.DataFrame()
@@ -300,11 +294,18 @@ def load_data_v5(start_date_str):
             st.error("❌ No common columns found for merging sales and ROFO data")
             return pd.DataFrame()
         
-        # Calculate L3M average
-        sales_date_cols = [c for c in sales_df.columns if re.search(r'\w+-\d{2}', str(c))]
-        l3m_cols = sales_date_cols[-3:] if len(sales_date_cols) >= 3 else sales_date_cols
+        # Get sales date columns and sort them chronologically
+        sales_date_cols = [c for c in sales_df.columns if re.search(r'^[A-Za-z]{3}-\d{2}$', str(c))]
+        sales_date_cols = sort_month_columns(sales_date_cols)
+        
+        # Get LAST 3 months for L3M calculation (correct order: Oct-25, Nov-25, Dec-25)
+        if len(sales_date_cols) >= 3:
+            l3m_cols = sales_date_cols[-3:]  # Last 3 months in chronological order
+        else:
+            l3m_cols = sales_date_cols
         
         if l3m_cols:
+            # Calculate L3M average correctly
             sales_df['L3M_Avg'] = sales_df[l3m_cols].applymap(
                 lambda x: clean_currency(x) if pd.notna(x) else 0
             ).mean(axis=1).round(0)
@@ -389,13 +390,13 @@ def load_data_v5(start_date_str):
         )
         merged_df['Month_Cover'] = merged_df['Month_Cover'].replace([np.inf, -np.inf], 0)
         
-        # Initialize consensus columns
-        cycle_months = horizon_months[:3]
-        for m in cycle_months:
+        # Initialize consensus columns for adjustment months
+        adjustment_months = st.session_state.get('adjustment_months', [])
+        for m in adjustment_months:
             merged_df[f'Cons_{m}'] = merged_df[m]
         
         # Add summary columns
-        merged_df['Total_Forecast'] = merged_df[cycle_months].sum(axis=1)
+        merged_df['Total_Forecast'] = merged_df[adjustment_months].sum(axis=1)
         
         return merged_df
         
@@ -419,7 +420,7 @@ def calculate_pct(df, months):
     return df_calc
 
 # ============================================================================
-# SIDEBAR WITH IMPROVED UX
+# SIDEBAR WITH IMPROVED UX - PERBAIKAN: TAMBAH OPTION ALL MONTHS
 # ============================================================================
 with st.sidebar:
     st.image("https://www.erhagroup.com/assets/img/logo-erha.png", width=150)
@@ -445,22 +446,38 @@ with st.sidebar:
         help="Select the starting month for your forecasting horizon"
     )
     
-    # Calculate cycle months
+    # PERBAIKAN: Tambah option untuk show all months
+    show_all_months = st.checkbox(
+        "📅 Show & Adjust All 12 Months",
+        value=False,
+        help="If checked, all 12 months will be editable. Default: only first 3 months editable"
+    )
+    
+    # Calculate cycle months based on selection
     try:
         start_date = datetime.strptime(selected_start_str, "%b-%y")
-        cycle_months = [
-            start_date.strftime("%b-%y"),
-            (start_date + relativedelta(months=1)).strftime("%b-%y"),
-            (start_date + relativedelta(months=2)).strftime("%b-%y")
-        ]
-        st.session_state.adjustment_months = cycle_months
         
-        st.info(f"""
-        **Planning Cycle:**  
-        🗓️ **M1:** {cycle_months[0]}  
-        🗓️ **M2:** {cycle_months[1]}  
-        🗓️ **M3:** {cycle_months[2]}
-        """)
+        if show_all_months:
+            # All 12 months are adjustable
+            horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+            adjustment_months = horizon_months  # All months adjustable
+            cycle_months = horizon_months  # For display purposes
+            st.session_state.adjustment_months = adjustment_months
+            st.info(f"**Planning Cycle:** ALL 12 Months ({horizon_months[0]} - {horizon_months[-1]})")
+        else:
+            # Only first 3 months adjustable
+            horizon_months = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
+            adjustment_months = horizon_months[:3]  # Only first 3 adjustable
+            cycle_months = adjustment_months  # For display purposes
+            st.session_state.adjustment_months = adjustment_months
+            st.info(f"""
+            **Planning Cycle:**  
+            🗓️ **Editable (M1-M3):** {cycle_months[0]}, {cycle_months[1]}, {cycle_months[2]}  
+            📋 **View Only (M4-M12):** {horizon_months[3]} - {horizon_months[-1]}
+            """)
+        
+        st.session_state.horizon_months = horizon_months
+        st.session_state.all_months_mode = show_all_months
         
     except:
         st.error("Invalid date selected")
@@ -484,9 +501,6 @@ with st.sidebar:
             st.error(f"❌ Missing months in ROFO: {', '.join(st.session_state.missing_months)}")
         else:
             st.success("✅ All months mapped successfully")
-        
-        if st.button("Check Data Structure"):
-            st.info("Data structure check would run here")
 
 # ============================================================================
 # MAIN DASHBOARD
@@ -494,12 +508,12 @@ with st.sidebar:
 st.markdown(f"""
 <div class="main-header">
     <h2>📊 ERHA S&OP Dashboard V5.5</h2>
-    <p>Forecast Horizon: <b>{cycle_months[0]} - {cycle_months[2]} (Consensus Editing)</b> | Next 9 Months (ROFO Projection)</p>
+    <p>Forecast Horizon: <b>{horizon_months[0]} - {horizon_months[-1]}</b> | Editable: <b>{', '.join(adjustment_months)}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
-# Load data
-all_df = load_data_v5(selected_start_str)
+# Load data dengan parameter all_months
+all_df = load_data_v5(selected_start_str, show_all_months)
 
 if all_df.empty:
     st.error("""
@@ -507,7 +521,6 @@ if all_df.empty:
     1. Google Sheets connection failed
     2. Required worksheets are empty
     3. No matching data between sales and ROFO
-    4. Internet connectivity issues
     
     Check the sidebar debugger for more details.
     """)
@@ -536,11 +549,17 @@ with stylable_container(
     with stat2:
         st.metric("🏷️ Brands", f"{total_brands:,}")
     with stat3:
-        st.metric("💰 L3M Avg Total", f"{all_df['L3M_Avg'].sum():,.0f}")
+        # Get L3M months from sales history (correct order)
+        sales_date_cols = [c for c in all_df.columns if re.search(r'^[A-Za-z]{3}-\d{2}$', str(c)) 
+                          and not c.startswith('Cons_') and '%' not in c]
+        sales_date_cols = sort_month_columns(sales_date_cols)
+        l3m_months = sales_date_cols[-3:] if len(sales_date_cols) >= 3 else sales_date_cols
+        l3m_label = f"L3M ({', '.join(l3m_months)})" if l3m_months else "L3M Avg"
+        st.metric(f"💰 {l3m_label}", f"{all_df['L3M_Avg'].sum():,.0f}")
     with stat4:
         st.metric("📈 Total Forecast", f"{total_forecast:,.0f}")
 
-# FILTERS SECTION
+# FILTERS SECTION - PERBAIKAN: TAMBAH FILTER BRAND & CHANNEL
 with stylable_container(
     key="filters", 
     css_styles="""
@@ -556,8 +575,8 @@ with stylable_container(
 ):
     st.markdown("### 🔍 Data Filters")
     
-    # Create filter columns
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # PERBAIKAN: Tambah filter untuk Brand dan Channel secara spesifik untuk adjustment
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         channels = ["ALL"] + sorted(all_df['Channel'].dropna().unique().tolist()) if 'Channel' in all_df.columns else ["ALL"]
@@ -578,6 +597,11 @@ with stylable_container(
     with col5:
         cover_options = ["ALL", "Overstock (>1.5)", "Healthy (0.5-1.5)", "Low (<0.5)", "Out of Stock (0)"]
         sel_cover = st.selectbox("📦 Stock Cover", cover_options, help="Filter by month's cover stock")
+    
+    with col6:
+        # PERBAIKAN: Filter untuk Product Focus
+        focus_options = ["ALL", "Yes", "No"]
+        sel_focus = st.selectbox("🎯 Product Focus", focus_options, help="Filter by product focus status")
 
 # Apply filters
 filtered_df = all_df.copy()
@@ -604,6 +628,12 @@ if sel_cover != "ALL":
     elif sel_cover == "Out of Stock (0)":
         filtered_df = filtered_df[filtered_df['Month_Cover'] == 0]
 
+if sel_focus != "ALL" and 'Product_Focus' in filtered_df.columns:
+    if sel_focus == "Yes":
+        filtered_df = filtered_df[filtered_df['Product_Focus'].str.contains('Yes', case=False, na=False)]
+    else:
+        filtered_df = filtered_df[~filtered_df['Product_Focus'].str.contains('Yes', case=False, na=False)]
+
 # Display filter results
 filtered_skus = len(filtered_df)
 if filtered_skus < total_skus:
@@ -613,13 +643,13 @@ if filtered_skus < total_skus:
 tab1, tab2, tab3 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics Dashboard", "📊 Summary Reports"])
 
 # ============================================================================
-# TAB 1: FORECAST WORKSHEET - IMPROVED
+# TAB 1: FORECAST WORKSHEET - PERBAIKAN: TAMPILKAN SEMUA BULAN SESUAI SETTING
 # ============================================================================
 with tab1:
     if filtered_df.empty:
         st.warning("⚠️ No data matches the selected filters. Please adjust your filters.")
     else:
-        # Color code legend with improved design
+        # Color code legend
         with st.expander("🎨 **Color Coding Legend**", expanded=True):
             col1, col2 = st.columns(2)
             
@@ -640,34 +670,31 @@ with tab1:
                 - 🔴 **High Stock (>1.5mo):** Pink highlight
                 - 🟠 **Low % (<90%):** Orange (below L3M avg)
                 - 🔴 **High % (>130%):** Red (above L3M avg)
-                - 🔵 **Editable Cells:** Blue border (consensus months)
-                
-                **Text Colors:**
-                - 🟠 **E-commerce:** Orange text
-                - 🟢 **Reseller:** Green text
+                - 🔵 **Editable Cells:** Blue border
                 """)
         
         # Process data for worksheet
         edit_df = filtered_df.copy()
-        edit_df = calculate_pct(edit_df, cycle_months)
+        
+        # PERBAIKAN: Calculate percentage hanya untuk adjustment months
+        adjustment_months = st.session_state.get('adjustment_months', [])
+        edit_df = calculate_pct(edit_df, adjustment_months)
         
         # Define columns to display
         base_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus', 'floor_price']
         
         # Get horizon months
-        horizon_months = st.session_state.get('horizon_months', cycle_months + [
-            (datetime.strptime(cycle_months[-1], "%b-%y") + relativedelta(months=i)).strftime("%b-%y") 
-            for i in range(1, 10)
-        ])
+        horizon_months = st.session_state.get('horizon_months', [])
         
-        # Historical columns (last 3 months before horizon)
-        hist_cols = [c for c in edit_df.columns if re.search(r'\w+-\d{2}', str(c)) 
+        # Get historical columns (last 3 months before horizon) - PERBAIKAN: SORT CHRONOLOGICAL
+        hist_cols = [c for c in edit_df.columns if re.search(r'^[A-Za-z]{3}-\d{2}$', str(c)) 
                     and c not in horizon_months 
                     and not c.startswith('Cons_') 
                     and '%' not in c]
+        hist_cols = sort_month_columns(hist_cols)
         
         if hist_cols:
-            hist_cols = sorted(hist_cols)[-3:]  # Last 3 historical months
+            hist_cols = hist_cols[-3:]  # Last 3 historical months in correct order
         
         # Build column list
         display_cols = base_cols.copy()
@@ -677,8 +704,12 @@ with tab1:
         
         display_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
         display_cols.extend(horizon_months)
-        display_cols.extend([f'{m}_%' for m in cycle_months])
-        display_cols.extend([f'Cons_{m}' for m in cycle_months])
+        
+        # PERBAIKAN: Tambah persentase hanya untuk adjustment months
+        display_cols.extend([f'{m}_%' for m in adjustment_months])
+        
+        # PERBAIKAN: Tambah consensus columns untuk semua adjustment months
+        display_cols.extend([f'Cons_{m}' for m in adjustment_months])
         
         # Remove duplicates and ensure columns exist
         display_cols = list(dict.fromkeys(display_cols))
@@ -848,8 +879,7 @@ with tab1:
                           maxWidth=110,
                           cellStyle=js_sku_focus,
                           suppressSizeToFit=True,
-                          headerName="SKU Code",
-                          checkboxSelection=False)
+                          headerName="SKU Code")
         
         gb.configure_column("Product_Name",
                           pinned="left",
@@ -868,7 +898,7 @@ with tab1:
                           suppressSizeToFit=True,
                           headerName="Channel")
         
-        # Hidden columns (for reference only)
+        # Hidden columns
         gb.configure_column("Product_Focus", hide=True)
         gb.configure_column("floor_price", hide=True)
         
@@ -881,7 +911,7 @@ with tab1:
                           suppressSizeToFit=False,
                           headerName="Brand")
         
-        # Month cover with conditional formatting
+        # Month cover
         gb.configure_column("Month_Cover",
                           width=95,
                           maxWidth=110,
@@ -891,10 +921,12 @@ with tab1:
                           suppressSizeToFit=True,
                           headerName="Month Cover")
         
-        # Hide non-cycle months from horizon
-        for m in horizon_months:
-            if m not in cycle_months:
-                gb.configure_column(m, hide=True)
+        # PERBAIKAN: Sembunyikan bulan-bulan yang tidak dalam adjustment jika mode default
+        if not show_all_months:
+            # Dalam mode default, sembunyikan bulan M4-M12 dari horizon
+            for m in horizon_months:
+                if m not in adjustment_months:
+                    gb.configure_column(m, hide=True)
         
         # Configure numeric columns (historical and forecast months)
         for col in display_cols:
@@ -908,8 +940,8 @@ with tab1:
                                   flex=1,
                                   suppressSizeToFit=False)
         
-        # Percentage columns
-        for m in cycle_months:
+        # PERBAIKAN: Percentage columns hanya untuk adjustment months
+        for m in adjustment_months:
             pct_col = f'{m}_%'
             if pct_col in display_cols:
                 gb.configure_column(pct_col,
@@ -921,8 +953,8 @@ with tab1:
                                   maxWidth=100,
                                   suppressSizeToFit=True)
         
-        # Editable consensus columns (pinned right)
-        for m in cycle_months:
+        # PERBAIKAN: Editable consensus columns untuk SEMUA adjustment months
+        for m in adjustment_months:
             cons_col = f'Cons_{m}'
             if cons_col in display_cols:
                 gb.configure_column(cons_col,
@@ -945,28 +977,9 @@ with tab1:
         # Build grid options
         grid_options = gb.build()
         
-        # Add custom CSS for better responsiveness
-        st.markdown("""
-        <style>
-            .ag-theme-alpine .ag-header-cell {
-                font-weight: 600 !important;
-            }
-            
-            .ag-theme-alpine .ag-cell {
-                display: flex;
-                align-items: center;
-            }
-            
-            /* Improve scrollbar */
-            .ag-body-viewport::-webkit-scrollbar {
-                width: 10px;
-                height: 10px;
-            }
-        </style>
-        """, unsafe_allow_html=True)
-        
         # Display the grid
-        st.markdown(f"**Worksheet:** Editing consensus for {cycle_months[0]} to {cycle_months[2]} ({len(ag_df):,} SKUs)")
+        mode_label = "ALL 12 Months" if show_all_months else f"First {len(adjustment_months)} Months"
+        st.markdown(f"**Worksheet:** Editing consensus for {mode_label} ({len(ag_df):,} SKUs)")
         
         with stylable_container(
             key="worksheet_container",
@@ -983,25 +996,6 @@ with tab1:
                 box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
                 margin-bottom: 1.5rem;
             }
-            
-            @media screen and (max-width: 1400px) {
-                div {
-                    height: 60vh !important;
-                }
-            }
-            
-            @media screen and (max-width: 992px) {
-                div {
-                    height: 55vh !important;
-                }
-            }
-            
-            @media screen and (max-width: 768px) {
-                div {
-                    height: 50vh !important;
-                    padding: 5px !important;
-                }
-            }
             """
         ):
             grid_response = AgGrid(
@@ -1017,11 +1011,7 @@ with tab1:
                 enable_enterprise_modules=False,
                 reload_data=False,
                 try_to_convert_back_to_original_types=False,
-                allow_unsafe_html=True,
-                custom_css={
-                    ".ag-root-wrapper": {"border": "none"},
-                    ".ag-header": {"border-bottom": "2px solid #e2e8f0"},
-                }
+                allow_unsafe_html=True
             )
         
         # Get updated data
@@ -1046,7 +1036,7 @@ with tab1:
                     with st.spinner("Uploading to Google Sheets..."):
                         # Prepare data for export
                         keep_cols = ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 'Product_Focus']
-                        keep_cols.extend([f'Cons_{m}' for m in cycle_months])
+                        keep_cols.extend([f'Cons_{m}' for m in adjustment_months])
                         
                         final_df = st.session_state.edited_v5[keep_cols].copy()
                         final_df['Last_Update'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1073,9 +1063,9 @@ with tab1:
                     )
         
         with col_info:
-            # Calculate totals
+            # Calculate totals for adjustment months
             total_consensus = 0
-            for m in cycle_months:
+            for m in adjustment_months:
                 cons_col = f'Cons_{m}'
                 if cons_col in updated_df.columns:
                     total_consensus += updated_df[cons_col].sum()
@@ -1083,11 +1073,11 @@ with tab1:
             st.metric(
                 "📊 **Total Consensus**",
                 f"{total_consensus:,.0f}",
-                f"M1-M3: {', '.join(cycle_months)}"
+                f"Adjustable Months: {', '.join(adjustment_months[:3])}" + ("..." if len(adjustment_months) > 3 else "")
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD - ENHANCED (FIXED VERSION)
+# TAB 2: ANALYTICS DASHBOARD (SIMPLIFIED VERSION)
 # ============================================================================
 with tab2:
     st.markdown("### 📊 Analytics Dashboard")
@@ -1101,31 +1091,19 @@ with tab2:
     
     # Get horizon months
     full_horizon = st.session_state.get('horizon_months', [])
-    if not full_horizon:
-        # Calculate if not in session state
-        start_date = datetime.strptime(selected_start_str, "%b-%y")
-        full_horizon = [(start_date + relativedelta(months=i)).strftime("%b-%y") for i in range(12)]
     
     # Analytics controls
-    col_view, col_year, col_metric = st.columns([2, 1, 1])
+    col_view, col_year = st.columns([2, 1])
     
     with col_view:
         chart_view = st.radio(
             "**Chart View:**",
-            ["Total Volume", "Breakdown by Brand", "Channel Comparison", "Tier Analysis"],
+            ["Total Volume", "Breakdown by Brand", "Channel Comparison"],
             horizontal=True
         )
     
     with col_year:
-        show_2026_only = st.checkbox("📅 **2026 Only**", value=False,
-                                   help="Show only 2026 data")
-    
-    with col_metric:
-        metric_type = st.selectbox(
-            "**Metric:**",
-            ["Volume (Units)", "Revenue (Rp)", "Both"],
-            index=0
-        )
+        show_2026_only = st.checkbox("📅 **2026 Only**", value=False)
     
     # Filter active months
     if show_2026_only:
@@ -1153,7 +1131,7 @@ with tab2:
         val_col = f'Final_Val_{m}'
         
         # Determine source column
-        if m in cycle_months:
+        if m in adjustment_months:
             source_col = f'Cons_{m}'
         else:
             source_col = m
@@ -1197,8 +1175,7 @@ with tab2:
             st.metric(
                 f"📦 **{period_label} Volume**",
                 f"{grand_total_qty:,.0f}",
-                f"{delta_qty:+.1f}% vs L3M" if l3m_total > 0 else "No L3M data",
-                delta_color="normal" if delta_qty >= 0 else "inverse"
+                f"{delta_qty:+.1f}% vs L3M" if l3m_total > 0 else "No L3M data"
             )
         
         with k2:
@@ -1211,78 +1188,47 @@ with tab2:
         
         with k3:
             avg_floor_price = calc_df['floor_price'].mean() if not calc_df.empty and calc_df['floor_price'].sum() > 0 else 0
-            sku_count = len(calc_df)
             st.metric(
-                f"📊 **Average Metrics**",
-                f"{sku_count:,} SKUs",
-                f"Avg Price: Rp {avg_floor_price:,.0f}" if avg_floor_price > 0 else "No price data"
+                f"📊 **Average Price**",
+                f"Rp {avg_floor_price:,.0f}",
+                f"{len(calc_df):,} SKUs"
             )
     
     st.markdown("---")
     
-    # Prepare chart data based on view type
+    # Prepare chart data
     chart_data = []
     
     if chart_view == "Total Volume":
-        # Simple monthly totals
         for m in active_months:
             qty = calc_df[f'Final_Qty_{m}'].sum()
             val = calc_df[f'Final_Val_{m}'].sum()
             chart_data.append({
                 "Month": m,
                 "Volume": qty,
-                "Value": val,
-                "Type": "Total"
+                "Value": val
             })
     
     elif chart_view == "Breakdown by Brand":
-        # Group by brand
         for m in active_months:
-            group = calc_df.groupby('Brand')[[f'Final_Qty_{m}', f'Final_Val_{m}']].sum().reset_index()
-            total_val_month = group[f'Final_Val_{m}'].sum()
-            
+            group = calc_df.groupby('Brand')[f'Final_Qty_{m}'].sum().reset_index()
             for _, row in group.iterrows():
                 chart_data.append({
                     "Month": m,
                     "Brand": row['Brand'],
-                    "Volume": row[f'Final_Qty_{m}'],
-                    "Value": total_val_month,
-                    "Category": "Brand"
+                    "Volume": row[f'Final_Qty_{m}']
                 })
     
     elif chart_view == "Channel Comparison":
-        # Group by channel
         if 'Channel' in calc_df.columns:
             for m in active_months:
-                group = calc_df.groupby('Channel')[[f'Final_Qty_{m}', f'Final_Val_{m}']].sum().reset_index()
-                
+                group = calc_df.groupby('Channel')[f'Final_Qty_{m}'].sum().reset_index()
                 for _, row in group.iterrows():
                     chart_data.append({
                         "Month": m,
                         "Channel": row['Channel'],
-                        "Volume": row[f'Final_Qty_{m}'],
-                        "Value": row[f'Final_Val_{m}'],
-                        "Category": "Channel"
+                        "Volume": row[f'Final_Qty_{m}']
                     })
-        else:
-            st.warning("Channel data not available")
-    
-    elif chart_view == "Tier Analysis":
-        # Group by SKU tier
-        if 'SKU_Tier' in calc_df.columns:
-            for m in active_months:
-                group = calc_df.groupby('SKU_Tier')[[f'Final_Qty_{m}', f'Final_Val_{m}']].sum().reset_index()
-                
-                for _, row in group.iterrows():
-                    chart_data.append({
-                        "Month": m,
-                        "Tier": row['SKU_Tier'],
-                        "Volume": row[f'Final_Qty_{m}'],
-                        "Value": row[f'Final_Val_{m}'],
-                        "Category": "Tier"
-                    })
-        else:
-            st.warning("SKU Tier data not available")
     
     # Create dataframe from chart data
     if not chart_data:
@@ -1291,163 +1237,61 @@ with tab2:
     
     chart_df = pd.DataFrame(chart_data)
     
-    # Create combo chart
+    # Create chart
     fig = go.Figure()
     
-    # Determine chart type based on selection
     if chart_view == "Total Volume":
-        # Bar chart for volume
         fig.add_trace(go.Bar(
             x=chart_df['Month'],
             y=chart_df['Volume'],
             name='Volume (Units)',
             marker_color='#3B82F6',
-            opacity=0.85,
-            hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<extra></extra>'
-        ))
-        
-        # Line chart for value (secondary axis)
-        fig.add_trace(go.Scatter(
-            x=chart_df['Month'],
-            y=chart_df['Value'],
-            name='Revenue (Rp)',
-            yaxis='y2',
-            line=dict(color='#EF4444', width=3),
-            mode='lines+markers',
-            hovertemplate='<b>%{x}</b><br>Revenue: Rp %{y:,.0f}<extra></extra>'
+            opacity=0.85
         ))
     
-    elif chart_view in ["Breakdown by Brand", "Channel Comparison", "Tier Analysis"]:
-        # Determine grouping column
-        group_col_map = {
-            "Breakdown by Brand": "Brand",
-            "Channel Comparison": "Channel",
-            "Tier Analysis": "Tier"
-        }
-        group_col = group_col_map.get(chart_view, "Brand")
-        
-        if group_col not in chart_df.columns:
-            st.warning(f"{group_col} data not available for chart")
-            st.stop()
-        
-        # Get unique groups
-        groups = chart_df[group_col].unique()
-        
-        # Color palette
+    elif chart_view == "Breakdown by Brand":
+        brands = chart_df['Brand'].unique()
         colors = px.colors.qualitative.Set3
         
-        # Create stacked bar chart
-        for i, group in enumerate(groups):
-            group_data = chart_df[chart_df[group_col] == group]
-            
+        for i, brand in enumerate(brands):
+            brand_data = chart_df[chart_df['Brand'] == brand]
             fig.add_trace(go.Bar(
-                x=group_data['Month'],
-                y=group_data['Volume'],
-                name=str(group),
-                marker_color=colors[i % len(colors)],
-                hovertemplate=f'<b>{group}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
+                x=brand_data['Month'],
+                y=brand_data['Volume'],
+                name=brand,
+                marker_color=colors[i % len(colors)]
             ))
-        
-        # Add value line (total) if Value column exists
-        if 'Value' in chart_df.columns and not chart_df.empty:
-            try:
-                monthly_totals = chart_df.groupby('Month')['Volume'].sum().reset_index()
-                value_by_month = chart_df.groupby('Month')['Value'].first()
-                monthly_totals['Value_Total'] = monthly_totals['Month'].map(value_by_month)
-                
-                fig.add_trace(go.Scatter(
-                    x=monthly_totals['Month'],
-                    y=monthly_totals['Value_Total'],
-                    name='Total Revenue (Rp)',
-                    yaxis='y2',
-                    line=dict(color='#000000', width=3, dash='dash'),
-                    mode='lines+markers',
-                    hovertemplate='<b>Total Revenue</b><br>Month: %{x}<br>Revenue: Rp %{y:,.0f}<extra></extra>'
-                ))
-            except Exception as e:
-                st.warning(f"Could not add revenue line: {str(e)}")
-        
         fig.update_layout(barmode='stack')
     
-    # SIMPLIFIED LAYOUT UPDATE - FIXED
+    elif chart_view == "Channel Comparison":
+        channels = chart_df['Channel'].unique()
+        colors = px.colors.qualitative.Set2
+        
+        for i, channel in enumerate(channels):
+            channel_data = chart_df[chart_df['Channel'] == channel]
+            fig.add_trace(go.Bar(
+                x=channel_data['Month'],
+                y=channel_data['Volume'],
+                name=channel,
+                marker_color=colors[i % len(colors)]
+            ))
+        fig.update_layout(barmode='stack')
+    
+    # Update layout
     fig.update_layout(
         title=f"📈 {chart_view} - {period_label} Horizon",
         yaxis_title="Volume (Units)",
-        yaxis2=dict(
-            title="Revenue (Rp)",
-            overlaying='y',
-            side='right'
-        ),
         xaxis_title="Month",
         xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
-        legend=dict(
-            x=0.02,
-            y=1.02,
-            orientation='h'
-        ),
-        hovermode='x unified',
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        height=500,
-        margin=dict(l=50, r=50, t=80, b=80)
+        legend=dict(orientation='h', y=1.1),
+        height=500
     )
     
     # Display chart
     st.plotly_chart(fig, use_container_width=True)
-    
-    # Add breakdown table
-    with st.expander(f"📋 **Detailed {chart_view} Breakdown**", expanded=False):
-        if chart_view == "Breakdown by Brand":
-            # Brand breakdown table
-            brand_summary = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
-            
-            # Rename columns
-            rename_dict = {old: old.replace('Final_Val_', '') for old in total_val_cols}
-            brand_summary.rename(columns=rename_dict, inplace=True)
-            
-            brand_summary['Total'] = brand_summary.iloc[:, 1:].sum(axis=1)
-            brand_summary = brand_summary.sort_values('Total', ascending=False)
-            
-            # Format for display
-            display_df = brand_summary.copy()
-            for col in display_df.columns:
-                if col != 'Brand':
-                    display_df[col] = display_df[col].apply(lambda x: f"Rp {x:,.0f}")
-            
-            st.dataframe(display_df, use_container_width=True, height=300)
-        
-        elif chart_view == "Channel Comparison":
-            # Channel breakdown
-            if 'Channel' in calc_df.columns:
-                channel_summary = calc_df.groupby('Channel')[total_val_cols].sum().reset_index()
-                
-                # Rename columns
-                rename_dict = {old: old.replace('Final_Val_', '') for old in total_val_cols}
-                channel_summary.rename(columns=rename_dict, inplace=True)
-                
-                channel_summary['Total'] = channel_summary.iloc[:, 1:].sum(axis=1)
-                channel_summary = channel_summary.sort_values('Total', ascending=False)
-                
-                # Display
-                st.dataframe(channel_summary, use_container_width=True, height=200)
-        
-        elif chart_view == "Tier Analysis":
-            # Tier breakdown
-            if 'SKU_Tier' in calc_df.columns:
-                tier_summary = calc_df.groupby('SKU_Tier')[total_val_cols].sum().reset_index()
-                
-                # Rename columns
-                rename_dict = {old: old.replace('Final_Val_', '') for old in total_val_cols}
-                tier_summary.rename(columns=rename_dict, inplace=True)
-                
-                tier_summary['Total'] = tier_summary.iloc[:, 1:].sum(axis=1)
-                tier_summary = tier_summary.sort_values('Total', ascending=False)
-                
-                # Display
-                st.dataframe(tier_summary, use_container_width=True, height=200)
 
 # ============================================================================
-# TAB 3: SUMMARY REPORTS
+# TAB 3: SUMMARY REPORTS (SIMPLIFIED)
 # ============================================================================
 with tab3:
     st.markdown("### 📊 Summary Reports")
@@ -1456,10 +1300,9 @@ with tab3:
         st.warning("No data available for reports")
     else:
         # Report selection
-        report_type = st.radio(
+        report_type = st.selectbox(
             "Select Report:",
-            ["📈 Performance Overview", "📦 Inventory Analysis", "💰 Financial Summary", "🎯 Product Focus"],
-            horizontal=True
+            ["📈 Performance Overview", "📦 Inventory Analysis", "🎯 Product Focus"]
         )
         
         if report_type == "📈 Performance Overview":
@@ -1469,27 +1312,17 @@ with tab3:
                 st.markdown("##### Top 10 SKUs by Forecast")
                 top_skus = filtered_df.nlargest(10, 'Total_Forecast')[['Product_Name', 'Brand', 'Total_Forecast', 'L3M_Avg']]
                 top_skus['Growth %'] = ((top_skus['Total_Forecast'] / top_skus['L3M_Avg'].replace(0, 1)) - 1) * 100
-                st.dataframe(top_skus.style.format({
-                    'Total_Forecast': '{:,.0f}',
-                    'L3M_Avg': '{:,.0f}',
-                    'Growth %': '{:.1f}%'
-                }), use_container_width=True)
+                st.dataframe(top_skus, use_container_width=True)
             
             with col2:
                 st.markdown("##### Brand Performance")
                 brand_perf = filtered_df.groupby('Brand').agg({
                     'Total_Forecast': 'sum',
-                    'L3M_Avg': 'sum',
-                    'Month_Cover': 'mean'
+                    'L3M_Avg': 'sum'
                 }).reset_index()
                 brand_perf['Growth %'] = ((brand_perf['Total_Forecast'] / brand_perf['L3M_Avg'].replace(0, 1)) - 1) * 100
                 brand_perf = brand_perf.sort_values('Total_Forecast', ascending=False)
-                st.dataframe(brand_perf.head(10).style.format({
-                    'Total_Forecast': '{:,.0f}',
-                    'L3M_Avg': '{:,.0f}',
-                    'Month_Cover': '{:.1f}',
-                    'Growth %': '{:.1f}%'
-                }), use_container_width=True)
+                st.dataframe(brand_perf.head(10), use_container_width=True)
         
         elif report_type == "📦 Inventory Analysis":
             st.markdown("##### Stock Cover Analysis")
@@ -1502,65 +1335,11 @@ with tab3:
             
             cover_summary = filtered_df.groupby(cover_bins).agg({
                 'sku_code': 'count',
-                'Total_Forecast': 'sum',
-                'Stock_Qty': 'sum'
+                'Total_Forecast': 'sum'
             }).reset_index()
-            cover_summary.columns = ['Stock Cover', 'SKU Count', 'Total Forecast', 'Total Stock']
+            cover_summary.columns = ['Stock Cover', 'SKU Count', 'Total Forecast']
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.dataframe(cover_summary.style.format({
-                    'SKU Count': '{:,.0f}',
-                    'Total Forecast': '{:,.0f}',
-                    'Total Stock': '{:,.0f}'
-                }), use_container_width=True)
-            
-            with col2:
-                # Create pie chart
-                fig_pie = px.pie(cover_summary, values='SKU Count', names='Stock Cover',
-                                title='SKU Distribution by Stock Cover',
-                                color_discrete_sequence=px.colors.qualitative.Set3)
-                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                fig_pie.update_layout(height=400)
-                st.plotly_chart(fig_pie, use_container_width=True)
-        
-        elif report_type == "💰 Financial Summary":
-            st.markdown("##### Financial Projection")
-            
-            # Calculate monthly financials
-            financial_data = []
-            for m in cycle_months:
-                if m in filtered_df.columns:
-                    month_qty = filtered_df[m].sum()
-                    month_val = month_qty * filtered_df['floor_price'].mean()
-                    financial_data.append({
-                        'Month': m,
-                        'Volume': month_qty,
-                        'Revenue': month_val,
-                        'Avg Price': filtered_df['floor_price'].mean()
-                    })
-            
-            financial_df = pd.DataFrame(financial_data)
-            
-            if not financial_df.empty:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.dataframe(financial_df.style.format({
-                        'Volume': '{:,.0f}',
-                        'Revenue': 'Rp {:,.0f}',
-                        'Avg Price': 'Rp {:,.0f}'
-                    }), use_container_width=True)
-                
-                with col2:
-                    # Revenue trend
-                    fig_rev = px.line(financial_df, x='Month', y='Revenue',
-                                     title='Monthly Revenue Projection',
-                                     markers=True)
-                    fig_rev.update_traces(line=dict(width=3))
-                    fig_rev.update_layout(height=400)
-                    st.plotly_chart(fig_rev, use_container_width=True)
+            st.dataframe(cover_summary, use_container_width=True)
         
         elif report_type == "🎯 Product Focus":
             st.markdown("##### Focus Products Analysis")
@@ -1573,20 +1352,11 @@ with tab3:
                 
                 # Display focus products
                 focus_display = focus_df[['Product_Name', 'Brand', 'Total_Forecast', 
-                                         'L3M_Avg', 'Month_Cover', 'floor_price']].copy()
+                                         'L3M_Avg', 'Month_Cover']].copy()
                 focus_display['Forecast vs L3M'] = ((focus_display['Total_Forecast'] / 
                                                     focus_display['L3M_Avg'].replace(0, 1)) - 1) * 100
                 
-                st.dataframe(focus_display.style.format({
-                    'Total_Forecast': '{:,.0f}',
-                    'L3M_Avg': '{:,.0f}',
-                    'Month_Cover': '{:.1f}',
-                    'floor_price': 'Rp {:,.0f}',
-                    'Forecast vs L3M': '{:.1f}%'
-                }).applymap(
-                    lambda x: 'background-color: #CCFBF1' if isinstance(x, (int, float)) and x > 0 else '',
-                    subset=['Forecast vs L3M']
-                ), use_container_width=True, height=400)
+                st.dataframe(focus_display, use_container_width=True, height=400)
             else:
                 st.info("ℹ️ No products marked as 'Focus' in the current filter")
 
@@ -1594,13 +1364,11 @@ with tab3:
 # FOOTER
 # ============================================================================
 st.markdown("---")
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.markdown(
-        """
-        <div style="text-align: center; color: #6B7280; font-size: 0.9rem;">
-        <p>📊 <b>ERHA S&OP Dashboard V5.5</b> | Last Updated: {date} | For internal use only</p>
-        </div>
-        """.format(date=datetime.now().strftime("%Y-%m-%d %H:%M")),
-        unsafe_allow_html=True
-    )
+st.markdown(
+    """
+    <div style="text-align: center; color: #6B7280; font-size: 0.9rem;">
+    <p>📊 <b>ERHA S&OP Dashboard V5.5</b> | Last Updated: {date} | For internal use only</p>
+    </div>
+    """.format(date=datetime.now().strftime("%Y-%m-%d %H:%M")),
+    unsafe_allow_html=True
+)
