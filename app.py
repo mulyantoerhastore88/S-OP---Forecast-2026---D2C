@@ -1081,205 +1081,147 @@ with tab1:
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD - PREMIUM VERSION
+# TAB 2: ANALYTICS DASHBOARD - FULL VERSION (CLEAN & FORMATTED)
 # ============================================================================
 with tab2:
-    # --- Analytics Header ---
-    st.markdown("""
-        <div style="background-color: #f8fafc; padding: 10px; border-radius: 10px; border-left: 5px solid #1E40AF; margin-bottom: 20px;">
-            <h3 style="margin:0;">📊 Strategic Forecast Analytics</h3>
-            <p style="margin:0; color: #64748b; font-size: 0.9rem;">Deep dive into volume trends, revenue projections, and brand performance.</p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### 📊 Analytics & Trends")
     
-    # Use updated data if available
+    # 1. Data Preparation (Safe Logic)
+    # Gunakan updated_df jika ada (setelah save di Tab 1), jika tidak gunakan filtered_df
     base_df = updated_df if 'updated_df' in locals() and not updated_df.empty else filtered_df
     
     if base_df.empty:
-        st.warning("No data available for analytics. Please check filters or load data.")
-        st.stop()
+        st.warning("⚠️ Belum ada data untuk dianalisis. Silakan sesuaikan filter atau muat data.")
+    else:
+        # Identifikasi bulan aktif (2026 saja atau sesuai horizon)
+        full_horizon = st.session_state.get('horizon_months', [])
+        active_months = [m for m in full_horizon if "-26" in m] if st.session_state.get('all_months_mode') else full_horizon
+        
+        # Kalkulasi Volume & Revenue per SKU
+        calc_df = base_df.copy()
+        for m in active_months:
+            # Prioritas: Ambil dari kolom 'Cons_Month' jika ada, jika tidak ambil dari 'Month'
+            source_col = f'Cons_{m}' if f'Cons_{m}' in calc_df.columns else m
+            if source_col in calc_df.columns:
+                calc_df[f'Qty_{m}'] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
+                calc_df[f'Val_{m}'] = calc_df[f'Qty_{m}'] * calc_df.get('floor_price', 0)
+            else:
+                calc_df[f'Qty_{m}'] = 0
+                calc_df[f'Val_{m}'] = 0
 
-    full_horizon = st.session_state.get('horizon_months', [])
-    
-    # --- Top Controls ---
-    col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([2, 1, 1])
-    with col_ctrl1:
-        chart_view = st.segmented_control(
-            "**Dimension View:**",
-            ["Total Volume", "Brand Performance", "Channel Mix"],
-            default="Brand Performance"
-        )
-    with col_ctrl2:
-        val_mode = st.toggle("💰 Show in Value (IDR)", value=False)
-    with col_ctrl3:
-        show_2026_only = st.checkbox("📅 2026 Only", value=True)
+        # --- TOP METRICS (WITH COMMAS) ---
+        qty_cols = [f'Qty_{m}' for m in active_months]
+        val_cols = [f'Val_{m}' for m in active_months]
+        
+        total_vol = calc_df[qty_cols].sum().sum()
+        total_rev = calc_df[val_cols].sum().sum()
+        
+        # Growth Calculation M1-M3 vs L3M
+        m1_m3_cols = [f'Qty_{m}' for m in (adjustment_months[:3] if len(adjustment_months) >=3 else adjustment_months)]
+        m1_m3_vol = calc_df[m1_m3_cols].sum().sum()
+        l3m_avg_total = calc_df['L3M_Avg'].sum() * len(m1_m3_cols)
+        growth_vs_l3m = ((m1_m3_vol / l3m_avg_total) - 1) if l3m_avg_total > 0 else 0
 
-    # Filter months
-    active_months = [m for m in full_horizon if "-26" in m] if show_2026_only else full_horizon
-    
-    # --- Data Processing for Analytics ---
-    calc_df = base_df.copy()
-    for m in active_months:
-        # Source prioritization: Consensus -> Original Horizon Month
-        source_col = f'Cons_{m}' if f'Cons_{m}' in calc_df.columns else m
-        calc_df[f'Qty_{m}'] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
-        calc_df[f'Val_{m}'] = calc_df[f'Qty_{m}'] * calc_df.get('floor_price', 0)
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("📦 Projected Volume", f"{total_vol:,.0f} units")
+        with m2:
+            st.metric("💰 Projected Revenue", f"Rp {total_rev:,.0f}")
+        with m3:
+            st.metric("📈 Growth (M1-M3 vs L3M)", f"{growth_vs_l3m:+.1%}")
+        
+        style_metric_cards(background_color="#FFFFFF", border_left_color="#1E40AF")
 
-    # --- Metrics Section (DENGAN FORMAT RIBUAN) ---
-    total_vol = sum(calc_df[f'Qty_{m}'].sum() for m in active_months)
-    total_rev = sum(calc_df[f'Val_{m}'].sum() for m in active_months)
-    
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        # Format {:,} otomatis menambah koma sebagai pemisah ribuan
-        st.metric("📦 Projected Volume", f"{total_vol:,.0f} units")
-    with m2:
-        # Format Rp {:,}
-        st.metric("💰 Projected Revenue", f"Rp {total_rev:,.0f}")
-    with m3:
-        st.metric("📈 Growth (M1-M3 vs L3M)", f"{growth_vs_l3m:+.1%}")
-    
-    style_metric_cards()
+        st.markdown("---")
 
-    # --- Bagian Chart (DENGAN FORMAT SUMBU Y) ---
-    if chart_view == "Brand Performance":
-        # ... kode pemrosesan plot_df ...
-        
-        fig = px.line(plot_df, x='Month', y='Value', color='Brand', markers=True)
-        
-        # Perbaikan format angka di Chart
-        fig.update_layout(
-            yaxis=dict(tickformat=",.0f"), # Menambah koma di sumbu Y
-            hovermode="x unified"
-        )
-        # Format angka saat kursor menempel (Hover)
-        fig.update_traces(hovertemplate="Value: %{y:,.0f}") 
-        
-        st.plotly_chart(fig, use_container_width=True)
+        # --- CHARTS SECTION ---
+        col_ctrl1, col_ctrl2 = st.columns([3, 1])
+        with col_ctrl1:
+            chart_view = st.radio("**View Dimension:**", ["By Brand", "By Channel", "Total Trend"], horizontal=True)
+        with col_ctrl2:
+            val_mode = st.toggle("💰 View IDR Value", value=False)
 
-    elif chart_view == "Channel Mix":
-        # ... kode pemrosesan chan_df ...
-        
-        fig = px.bar(chan_df, x='Month', y='Value', color='Channel', text_auto=',.2s')
-        fig.update_layout(yaxis=dict(tickformat=",.0f"))
-        st.plotly_chart(fig, use_container_width=True)
+        y_axis_label = "Value (IDR)" if val_mode else "Volume (Units)"
+        target_prefix = "Val_" if val_mode else "Qty_"
 
-    # --- Visual Analysis Section ---
-    st.markdown("---")
-    
-    if chart_view == "Brand Performance":
-        col_table, col_chart = st.columns([1, 1])
-        
-        # 1. Prepare Brand Table Data
-        brand_data = []
-        for brand in calc_df['Brand'].unique():
-            b_vol = sum(calc_df[calc_df['Brand'] == brand][f'Qty_{m}'].sum() for m in active_months)
-            b_rev = sum(calc_df[calc_df['Brand'] == brand][f'Val_{m}'].sum() for m in active_months)
-            brand_data.append({"Brand": brand, "Volume": b_vol, "Revenue": b_rev})
-        
-        brand_summary = pd.DataFrame(brand_data).sort_values("Revenue", ascending=False)
-        brand_summary['Share %'] = (brand_summary['Revenue'] / total_rev * 100).round(1)
-        
-        with col_table:
-            st.markdown("##### 🏆 Ranking by Revenue Share")
+        if chart_view == "By Brand":
+            # Prepare Line Chart Data
+            brand_plot = []
+            for m in active_months:
+                temp = calc_df.groupby('Brand')[f'{target_prefix}{m}'].sum().reset_index()
+                temp['Month'] = m
+                temp.columns = ['Brand', 'Value', 'Month']
+                brand_plot.append(temp)
+            
+            df_plot = pd.concat(brand_plot)
+            fig = px.line(df_plot, x='Month', y='Value', color='Brand', markers=True,
+                          title=f"Monthly {y_axis_label} by Brand")
+            
+            # Format Angka di Chart
+            fig.update_layout(yaxis=dict(tickformat=",.0f"), hovermode="x unified")
+            fig.update_traces(hovertemplate="%{y:,.0f}")
+            st.plotly_chart(fig, use_container_width=True)
+
+            # --- BRAND SUMMARY TABLE ---
+            st.markdown("##### 📋 Brand Ranking")
+            brand_summary = []
+            for b in calc_df['Brand'].unique():
+                b_vol = calc_df[calc_df['Brand'] == b][qty_cols].sum().sum()
+                b_rev = calc_df[calc_df['Brand'] == b][val_cols].sum().sum()
+                brand_summary.append({"Brand": b, "Total Volume": b_vol, "Total Revenue": b_rev})
+            
+            df_brand_sum = pd.DataFrame(brand_summary).sort_values("Total Revenue", ascending=False)
             st.dataframe(
-                brand_summary,
+                df_brand_sum,
                 column_config={
-                    "Brand": st.column_config.TextColumn("Brand Name"),
-                    "Volume": st.column_config.NumberColumn("Total Qty", format="%d"),
-                    "Revenue": st.column_config.NumberColumn("Total IDR", format="Rp %d"),
-                    "Share %": st.column_config.ProgressColumn("Market Share", min_value=0, max_value=100, format="%.1f%%")
+                    "Total Volume": st.column_config.NumberColumn(format="%d"),
+                    "Total Revenue": st.column_config.NumberColumn(format="Rp %d")
                 },
                 hide_index=True,
                 use_container_width=True
             )
 
-        with col_chart:
-            st.markdown("##### 📈 Trend Analysis")
-            # Pivot data for chart
-            plot_list = []
+        elif chart_view == "By Channel":
+            chan_plot = []
             for m in active_months:
-                temp = calc_df.groupby('Brand')[f'Val_{m}' if val_mode else f'Qty_{m}'].sum().reset_index()
+                temp = calc_df.groupby('Channel')[f'{target_prefix}{m}'].sum().reset_index()
                 temp['Month'] = m
-                temp.columns = ['Brand', 'Value', 'Month']
-                plot_list.append(temp)
+                temp.columns = ['Channel', 'Value', 'Month']
+                chan_plot.append(temp)
             
-            plot_df = pd.concat(plot_list)
-            
-            fig = px.line(plot_df, x='Month', y='Value', color='Brand', markers=True,
-                         color_discrete_sequence=px.colors.qualitative.Prism)
-            fig.update_layout(
-                margin=dict(l=20, r=20, t=20, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                hovermode="x unified"
-            )
+            df_chan = pd.concat(chan_plot)
+            fig = px.bar(df_chan, x='Month', y='Value', color='Channel', barmode='group',
+                         title=f"Channel Mix ({y_axis_label})")
+            fig.update_layout(yaxis=dict(tickformat=",.0f"))
+            fig.update_traces(hovertemplate="%{y:,.0f}")
             st.plotly_chart(fig, use_container_width=True)
 
-    elif chart_view == "Channel Mix":
-        st.markdown("##### 🛒 Channel Contribution over Time")
-        chan_list = []
-        for m in active_months:
-            temp = calc_df.groupby('Channel')[f'Val_{m}' if val_mode else f'Qty_{m}'].sum().reset_index()
-            temp['Month'] = m
-            temp.columns = ['Channel', 'Value', 'Month']
-            chan_list.append(temp)
-        
-        chan_df = pd.concat(chan_list)
-        fig = px.bar(chan_df, x='Month', y='Value', color='Channel', 
-                     text_auto='.2s', barmode='group',
-                     color_discrete_map={'E-commerce': '#F97316', 'Reseller': '#0EA5E9', 'Clinical': '#8B5CF6'})
-        st.plotly_chart(fig, use_container_width=True)
+        else: # Total Trend
+            total_plot = []
+            for m in active_months:
+                total_plot.append({
+                    "Month": m,
+                    "Value": calc_df[f'{target_prefix}{m}'].sum()
+                })
+            df_total = pd.DataFrame(total_plot)
+            fig = px.area(df_total, x='Month', y='Value', title=f"Aggregated {y_axis_label} Trend")
+            fig.update_layout(yaxis=dict(tickformat=",.0f"))
+            fig.update_traces(hovertemplate="%{y:,.0f}", line_color='#1E40AF')
+            st.plotly_chart(fig, use_container_width=True)
 
-    else: # Total Volume View
-        st.markdown("##### 📦 Monthly Aggregate Demand")
-        agg_data = []
-        for m in active_months:
-            agg_data.append({
-                "Month": m,
-                "Value": calc_df[f'Val_{m}' if val_mode else f'Qty_{m}'].sum()
-            })
-        agg_df = pd.DataFrame(agg_data)
-        
-        fig = px.area(agg_df, x='Month', y='Value', 
-                      color_discrete_sequence=['#1E40AF'],
-                      labels={'Value': 'Revenue (IDR)' if val_mode else 'Volume (Units)'})
-        fig.update_traces(fillcolor="rgba(30, 64, 175, 0.2)", line_width=4)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # --- Insight Expander (FIXED - ANTI FAIL) ---
-    with st.expander("💡 Key Strategic Insights", expanded=True):
-        try:
-            # 1. Cari SKU Terpopuler berdasarkan total qty yang baru dihitung (total_vol)
-            # Kita cari langsung dari calc_df yang sudah pasti punya kolom Qty_
-            qty_cols_available = [c for c in calc_df.columns if c.startswith('Qty_')]
-            
-            if qty_cols_available and not calc_df.empty:
-                # Hitung total per baris khusus untuk analisis ini
-                temp_total = calc_df[qty_cols_available].sum(axis=1)
-                top_idx = temp_total.idxmax()
-                top_sku_name = calc_df.loc[top_idx, 'Product_Name']
-                top_sku_val = temp_total.max()
+        # --- INSIGHTS (SAFE & FORMATTED) ---
+        with st.expander("💡 Key Strategic Insights", expanded=True):
+            # Hitung kolom total qty secara dinamis untuk mencari Top SKU
+            calc_df['Total_Qty_Analytic'] = calc_df[qty_cols].sum(axis=1)
+            if not calc_df.empty:
+                top_sku = calc_df.loc[calc_df['Total_Qty_Analytic'].idxmax()]
+                st.write(f"🌟 **Leading SKU:** `{top_sku['Product_Name']}` dengan total volume **{top_sku['Total_Qty_Analytic']:,.0f} units**.")
                 
-                st.write(f"🌟 **Leading SKU:** `{top_sku_name}` adalah pendorong volume terbesar dengan proyeksi **{top_sku_val:,.0f} units**.")
-            else:
-                st.write("🌟 **Leading SKU:** Belum ada data volume yang terhitung.")
-
-            # 2. Analisis Stok (Gunakan kolom Month_Cover yang sudah ada dari loader)
-            if 'Month_Cover' in calc_df.columns:
-                low_stock_count = len(calc_df[calc_df['Month_Cover'] < 0.5])
-                if low_stock_count > 0:
-                    st.warning(f"⚠️ **Stock Alert:** Ada {low_stock_count} SKU dengan level stok kritis (<0.5 MoS).")
+                low_stock_skus = len(calc_df[calc_df['Month_Cover'] < 0.5])
+                if low_stock_skus > 0:
+                    st.error(f"⚠️ **Inventory Alert:** Ada {low_stock_skus} SKU yang diproyeksikan kritis (<0.5 MoS).")
                 else:
-                    st.success("✅ **Inventory Health:** Tidak ada proyeksi stock-out kritis pada filter ini.")
-            
-            # 3. Revenue Insight
-            if total_rev > 0:
-                st.info(f"💰 **Revenue Focus:** Total estimasi revenue sebesar **Rp {total_rev:,.0f}** terkonsentrasi pada `{len(active_months)}` bulan aktif.")
-
-        except Exception as e:
-            st.error(f"Pesan teknis: Insights belum bisa dimuat karena perbedaan struktur kolom.")
-            # st.write(e) # Uncomment ini jika ingin debug lebih dalam
-
+                    st.success("✅ **Stock Level:** Semua SKU terpantau aman di atas level kritis.")
 # ============================================================================
 # TAB 3: SUMMARY REPORTS - EXECUTIVE PRESENTATION (SAFE MODE)
 # ============================================================================
