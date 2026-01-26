@@ -1260,74 +1260,125 @@ with tab2:
             # st.write(e) # Uncomment ini jika ingin debug lebih dalam
 
 # ============================================================================
-# TAB 3: SUMMARY REPORTS (SIMPLIFIED)
+# TAB 3: SUMMARY REPORTS - EXECUTIVE PRESENTATION
 # ============================================================================
 with tab3:
-    st.markdown("### 📊 Summary Reports")
+    st.markdown("### 📋 Executive Summary Reports")
     
-    if filtered_df.empty:
-        st.warning("No data available for reports")
+    # Pre-processing data untuk report
+    report_df = updated_df if 'updated_df' in locals() and not updated_df.empty else filtered_df
+    
+    if report_df.empty:
+        st.warning("Data kosong. Silakan sesuaikan filter.")
     else:
-        # Report selection
-        report_type = st.selectbox(
-            "Select Report:",
-            ["📈 Performance Overview", "📦 Inventory Analysis", "🎯 Product Focus"]
+        # Menghitung pencapaian vs L3M secara global
+        total_f_qty = report_df[[f'Cons_{m}' for m in adjustment_months if f'Cons_{m}' in report_df.columns]].sum().sum()
+        total_l3m_qty = (report_df['L3M_Avg'].sum() * len(adjustment_months))
+        growth_pct = ((total_f_qty / total_l3m_qty) - 1) * 100 if total_l3m_qty > 0 else 0
+
+        # Baris Header Report
+        r1, r2 = st.columns([2, 1])
+        with r1:
+            st.info(f"💡 **S&OP Perspective:** Forecast periode ini menunjukkan tren **{'Naik' if growth_pct > 0 else 'Turun'} {abs(growth_pct):.1f}%** dibandingkan rata-rata penjualan 3 bulan terakhir.")
+        
+        # 1. Pareto Analysis (Top 80% Contributors)
+        st.markdown("#### 🎯 Focus Area: Top SKU Contribution")
+        top_10_skus = report_df.nlargest(10, 'Total_Forecast').copy()
+        
+        # Styling table Top 10
+        st.dataframe(
+            top_10_skus[['sku_code', 'Product_Name', 'Brand', 'L3M_Avg', 'Total_Forecast', 'Month_Cover']],
+            column_config={
+                "Total_Forecast": st.column_config.NumberColumn("Total Forecast", format="%d 📦"),
+                "L3M_Avg": st.column_config.NumberColumn("L3M Avg", format="%d"),
+                "Month_Cover": st.column_config.NumberColumn("MoS", format="%.1f Mo"),
+            },
+            use_container_width=True,
+            hide_index=True
         )
+
+        # 2. Inventory Risk & Brand Heatmap
+        st.markdown("---")
+        c1, c2 = st.columns(2)
         
-        if report_type == "📈 Performance Overview":
-            col1, col2 = st.columns(2)
+        with c1:
+            st.markdown("##### 📦 Inventory Risk Matrix")
+            risk_counts = {
+                "Critical Out (MoS < 0.5)": len(report_df[report_df['Month_Cover'] < 0.5]),
+                "Understock (0.5 - 1.0)": len(report_df[(report_df['Month_Cover'] >= 0.5) & (report_df['Month_Cover'] < 1.0)]),
+                "Optimal (1.0 - 1.5)": len(report_df[(report_df['Month_Cover'] >= 1.0) & (report_df['Month_Cover'] <= 1.5)]),
+                "Overstock (> 1.5)": len(report_df[report_df['Month_Cover'] > 1.5])
+            }
             
-            with col1:
-                st.markdown("##### Top 10 SKUs by Forecast")
-                top_skus = filtered_df.nlargest(10, 'Total_Forecast')[['Product_Name', 'Brand', 'Total_Forecast', 'L3M_Avg']]
-                top_skus['Growth %'] = ((top_skus['Total_Forecast'] / top_skus['L3M_Avg'].replace(0, 1)) - 1) * 100
-                st.dataframe(top_skus, use_container_width=True)
-            
-            with col2:
-                st.markdown("##### Brand Performance")
-                brand_perf = filtered_df.groupby('Brand').agg({
-                    'Total_Forecast': 'sum',
-                    'L3M_Avg': 'sum'
-                }).reset_index()
-                brand_perf['Growth %'] = ((brand_perf['Total_Forecast'] / brand_perf['L3M_Avg'].replace(0, 1)) - 1) * 100
-                brand_perf = brand_perf.sort_values('Total_Forecast', ascending=False)
-                st.dataframe(brand_perf.head(10), use_container_width=True)
-        
-        elif report_type == "📦 Inventory Analysis":
-            st.markdown("##### Stock Cover Analysis")
-            
-            # Create bins for month cover
-            cover_bins = pd.cut(filtered_df['Month_Cover'], 
-                               bins=[-1, 0, 0.5, 1, 1.5, 3, float('inf')],
-                               labels=['Out of Stock', 'Critical (<0.5)', 'Low (0.5-1)', 
-                                      'Optimal (1-1.5)', 'High (1.5-3)', 'Excess (>3)'])
-            
-            cover_summary = filtered_df.groupby(cover_bins).agg({
-                'sku_code': 'count',
-                'Total_Forecast': 'sum'
-            }).reset_index()
-            cover_summary.columns = ['Stock Cover', 'SKU Count', 'Total Forecast']
-            
-            st.dataframe(cover_summary, use_container_width=True)
-        
-        elif report_type == "🎯 Product Focus":
-            st.markdown("##### Focus Products Analysis")
-            
-            # Get focus products
-            focus_df = filtered_df[filtered_df['Product_Focus'].str.contains('Yes', case=False, na=False)]
-            
-            if not focus_df.empty:
-                st.success(f"✅ Found {len(focus_df)} focus products")
-                
-                # Display focus products
-                focus_display = focus_df[['Product_Name', 'Brand', 'Total_Forecast', 
-                                         'L3M_Avg', 'Month_Cover']].copy()
-                focus_display['Forecast vs L3M'] = ((focus_display['Total_Forecast'] / 
-                                                    focus_display['L3M_Avg'].replace(0, 1)) - 1) * 100
-                
-                st.dataframe(focus_display, use_container_width=True, height=400)
-            else:
-                st.info("ℹ️ No products marked as 'Focus' in the current filter")
+            for label, count in risk_counts.items():
+                color = "red" if "Critical" in label else "orange" if "Under" in label else "green" if "Optimal" in label else "blue"
+                st.markdown(f"- **{label}**: :{color}[{count} SKUs]")
+
+        with c2:
+            st.markdown("##### 🏷️ Brand Concentration")
+            brand_pie = px.pie(report_df, values='Total_Forecast', names='Brand', hole=0.4,
+                             color_discrete_sequence=px.colors.qualitative.Safe)
+            brand_pie.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200, showlegend=False)
+            st.plotly_chart(brand_pie, use_container_width=True)
+
+# ============================================================================
+# TAB 4: AI DEMAND SENSING (WHAT-IF ANALYSIS)
+# ============================================================================
+with tab4:
+    st.markdown("### 🤖 Demand Sensing & Simulation")
+    
+    with st.expander("🛠️ Simulation Controls", expanded=True):
+        col_sim1, col_sim2 = st.columns(2)
+        with col_sim1:
+            market_surge = st.slider("🚀 Market Surge Scenario (%)", -50, 100, 0, help="Simulasikan kenaikan demand mendadak (misal: Twin Date Promo 11.11 / 12.12)")
+        with col_sim2:
+            supply_delay = st.select_slider("🚚 Supply Chain Delay", options=["Normal", "1 Week Delay", "2 Weeks Delay", "1 Month Delay"])
+
+    # Kalkulasi Simulasi
+    sim_df = report_df.copy()
+    multiplier = 1 + (market_surge / 100)
+    
+    # Hitung impact ke stock cover
+    sim_df['Simulated_Forecast'] = sim_df['Total_Forecast'] * multiplier
+    sim_df['Simulated_MoS'] = np.where(
+        sim_df['Simulated_Forecast'] > 0,
+        (sim_df['Stock_Qty'] / (sim_df['Simulated_Forecast'] / len(adjustment_months))),
+        sim_df['Month_Cover']
+    )
+    
+    # Visualisasi Impact
+    st.markdown("#### 📊 Simulation Impact")
+    
+    kpi1, kpi2, kpi3 = st.columns(3)
+    with kpi1:
+        st.metric("New Total Volume", f"{sim_df['Simulated_Forecast'].sum():,.0f}", delta=f"{market_surge}%")
+    with kpi2:
+        oos_risk = len(sim_df[sim_df['Simulated_MoS'] < 0.5])
+        st.metric("OOS Risk SKUs", f"{oos_risk} SKUs", delta=f"{oos_risk - risk_counts['Critical Out (MoS < 0.5)']} vs Current", delta_color="inverse")
+    with kpi3:
+        potential_rev = (sim_df['Simulated_Forecast'] * sim_df['floor_price']).sum()
+        st.metric("Potential Revenue", f"Rp {potential_rev:,.0f}")
+
+    # Grafik Perbandingan
+    fig_sim = go.Figure()
+    fig_sim.add_trace(go.Box(y=report_df['Month_Cover'], name="Current MoS", marker_color='#94a3b8'))
+    fig_sim.add_trace(go.Box(y=sim_df['Simulated_MoS'], name="Simulated MoS", marker_color='#f43f5e'))
+    
+    fig_sim.update_layout(
+        title="Distribusi Stock Cover (MoS): Current vs Simulated",
+        yaxis_title="Months of Supply",
+        height=400
+    )
+    st.plotly_chart(fig_sim, use_container_width=True)
+    
+    st.markdown("""
+        > **AI Insight:** > Jika terjadi kenaikan demand sebesar **{surge}%**, stok Anda akan menipis rata-rata menjadi **{mos:.1f} bulan**. 
+        > Disarankan untuk menambah buffer stock pada Brand **{brand}** karena sensitivitas yang tinggi terhadap perubahan demand.
+    """.format(
+        surge=market_surge, 
+        mos=sim_df['Simulated_MoS'].mean(),
+        brand=report_df.groupby('Brand')['Total_Forecast'].sum().idxmax() if not report_df.empty else "N/A"
+    ))
 
 # ============================================================================
 # FOOTER
