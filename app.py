@@ -1125,27 +1125,44 @@ with tab2:
         calc_df[f'Qty_{m}'] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
         calc_df[f'Val_{m}'] = calc_df[f'Qty_{m}'] * calc_df.get('floor_price', 0)
 
-    # --- Metrics Section ---
+    # --- Metrics Section (DENGAN FORMAT RIBUAN) ---
     total_vol = sum(calc_df[f'Qty_{m}'].sum() for m in active_months)
     total_rev = sum(calc_df[f'Val_{m}'].sum() for m in active_months)
     
-    # Comparison M1-M3 vs L3M
-    m1_m3 = adjustment_months[:3]
-    m1_m3_vol = sum(calc_df[f'Qty_{m}'].sum() for m in m1_m3 if f'Qty_{m}' in calc_df.columns)
-    l3m_total_avg = calc_df['L3M_Avg'].sum() * 3
-    growth_vs_l3m = ((m1_m3_vol / l3m_total_avg) - 1) if l3m_total_avg > 0 else 0
-
     m1, m2, m3 = st.columns(3)
     with m1:
-        st.metric("📦 Projected Volume", f"{total_vol:,.0f} units", delta=f"{len(active_months)} Months")
+        # Format {:,} otomatis menambah koma sebagai pemisah ribuan
+        st.metric("📦 Projected Volume", f"{total_vol:,.0f} units")
     with m2:
-        st.metric("💰 Projected Revenue", f"Rp {total_rev:,.0f}", delta="Estimated", delta_color="normal")
+        # Format Rp {:,}
+        st.metric("💰 Projected Revenue", f"Rp {total_rev:,.0f}")
     with m3:
-        st.metric("📈 Growth (M1-M3 vs L3M)", f"{growth_vs_l3m:+.1%}", 
-                  delta="Target > 10%" if growth_vs_l3m > 0.1 else "Below Target",
-                  delta_color="normal" if growth_vs_l3m > 0.1 else "inverse")
+        st.metric("📈 Growth (M1-M3 vs L3M)", f"{growth_vs_l3m:+.1%}")
     
-    style_metric_cards(background_color="#FFFFFF", border_left_color="#1E40AF", border_size_px=1, box_shadow=True)
+    style_metric_cards()
+
+    # --- Bagian Chart (DENGAN FORMAT SUMBU Y) ---
+    if chart_view == "Brand Performance":
+        # ... kode pemrosesan plot_df ...
+        
+        fig = px.line(plot_df, x='Month', y='Value', color='Brand', markers=True)
+        
+        # Perbaikan format angka di Chart
+        fig.update_layout(
+            yaxis=dict(tickformat=",.0f"), # Menambah koma di sumbu Y
+            hovermode="x unified"
+        )
+        # Format angka saat kursor menempel (Hover)
+        fig.update_traces(hovertemplate="Value: %{y:,.0f}") 
+        
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif chart_view == "Channel Mix":
+        # ... kode pemrosesan chan_df ...
+        
+        fig = px.bar(chan_df, x='Month', y='Value', color='Channel', text_auto=',.2s')
+        fig.update_layout(yaxis=dict(tickformat=",.0f"))
+        st.plotly_chart(fig, use_container_width=True)
 
     # --- Visual Analysis Section ---
     st.markdown("---")
