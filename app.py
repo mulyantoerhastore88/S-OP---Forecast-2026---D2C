@@ -1329,53 +1329,6 @@ with tab3:
             brand_pie.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200, showlegend=False)
             st.plotly_chart(brand_pie, use_container_width=True)
 
-# ============================================================================
-# TAB 4: AI DEMAND SENSING (SAFE MODE)
-# ============================================================================
-with tab4:
-    st.markdown("### 🤖 Demand Sensing & Simulation")
-    
-    if report_df.empty:
-        st.warning("Data tidak tersedia untuk simulasi.")
-    else:
-        with st.expander("🛠️ Simulation Controls", expanded=True):
-            col_sim1, col_sim2 = st.columns(2)
-            with col_sim1:
-                market_surge = st.slider("🚀 Market Surge Scenario (%)", -50, 100, 0)
-            with col_sim2:
-                supply_delay = st.select_slider("🚚 Supply Chain Delay", options=["Normal", "1 Week Delay", "2 Weeks Delay"])
-
-        # Simulasi menggunakan Temp_Total yang sudah pasti ada
-        sim_df = report_df.copy()
-        multiplier = 1 + (market_surge / 100)
-        sim_df['Simulated_Forecast'] = sim_df['Temp_Total'] * multiplier
-        
-        # Hitung New MoS
-        # (Stock / (Simulated Total / jumlah bulan))
-        num_months = len(adjustment_months) if len(adjustment_months) > 0 else 1
-        sim_df['Simulated_MoS'] = np.where(
-            sim_df['Simulated_Forecast'] > 0,
-            (sim_df['Stock_Qty'] / (sim_df['Simulated_Forecast'] / num_months)),
-            sim_df['Month_Cover']
-        )
-        
-        st.markdown("#### 📊 Simulation Impact")
-        k1, k2, k3 = st.columns(3)
-        with k1:
-            st.metric("New Total Volume", f"{sim_df['Simulated_Forecast'].sum():,.0f}", delta=f"{market_surge}%")
-        with k2:
-            oos_risk_sim = len(sim_df[sim_df['Simulated_MoS'] < 0.5])
-            current_oos = len(report_df[report_df['Month_Cover'] < 0.5])
-            st.metric("OOS Risk SKUs", f"{oos_risk_sim} SKUs", delta=f"{oos_risk_sim - current_oos} vs Current", delta_color="inverse")
-        with k3:
-            pot_rev_sim = (sim_df['Simulated_Forecast'] * sim_df.get('floor_price', 0)).sum()
-            st.metric("Potential Revenue", f"Rp {pot_rev_sim:,.0f}")
-
-        fig_sim = go.Figure()
-        fig_sim.add_trace(go.Box(y=report_df['Month_Cover'], name="Current MoS", marker_color='#94a3b8'))
-        fig_sim.add_trace(go.Box(y=sim_df['Simulated_MoS'], name="Simulated MoS", marker_color='#f43f5e'))
-        fig_sim.update_layout(title="Stock Cover Impact (Current vs Simulated)", height=400)
-        st.plotly_chart(fig_sim, use_container_width=True)
 
 # ============================================================================
 # FOOTER
