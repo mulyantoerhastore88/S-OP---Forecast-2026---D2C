@@ -1077,7 +1077,7 @@ with tab1:
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD (SIMPLIFIED VERSION)
+# TAB 2: ANALYTICS DASHBOARD - IMPROVED VERSION
 # ============================================================================
 with tab2:
     st.markdown("### 📊 Analytics Dashboard")
@@ -1148,11 +1148,24 @@ with tab2:
         total_qty_cols.append(qty_col)
         total_val_cols.append(val_col)
     
-    # Calculate totals
-    grand_total_qty = calc_df[total_qty_cols].sum().sum()
-    grand_total_val = calc_df[total_val_cols].sum().sum()
+    # PERBAIKAN 1: Hitung metrics yang benar (M1-M3 vs L3M)
+    # Get M1-M3 months (adjustment months)
+    m1_m3_months = adjustment_months[:3] if len(adjustment_months) >= 3 else adjustment_months
     
-    # Display KPIs
+    # Calculate M1-M3 totals
+    m1_m3_qty = 0
+    m1_m3_val = 0
+    
+    for m in m1_m3_months:
+        cons_col = f'Cons_{m}'
+        if cons_col in calc_df.columns:
+            m1_m3_qty += calc_df[cons_col].sum()
+            m1_m3_val += calc_df[cons_col].sum() * calc_df['floor_price'].mean()
+    
+    # Calculate L3M total (historical 3 months average)
+    l3m_avg_qty = calc_df['L3M_Avg'].sum()
+    
+    # Display KPIs - PERBAIKAN 2: Metrics yang meaningful
     with stylable_container(
         key="analytics_kpi",
         css_styles="""
@@ -1170,43 +1183,53 @@ with tab2:
         period_label = "2026" if show_2026_only else f"{len(active_months)}-Month"
         
         with k1:
-            l3m_total = calc_df['L3M_Avg'].sum() * len(active_months) / 3
-            delta_qty = ((grand_total_qty / l3m_total) - 1) * 100 if l3m_total > 0 else 0
+            # PERBAIKAN: Total Volume untuk periode yang dipilih
+            grand_total_qty = calc_df[total_qty_cols].sum().sum()
             st.metric(
                 f"📦 **{period_label} Volume**",
                 f"{grand_total_qty:,.0f}",
-                f"{delta_qty:+.1f}% vs L3M" if l3m_total > 0 else "No L3M data"
+                f"Total units forecast"
             )
         
         with k2:
-            avg_monthly = grand_total_val / len(active_months) if active_months else 0
+            # PERBAIKAN: Total Revenue untuk periode yang dipilih
+            grand_total_val = calc_df[total_val_cols].sum().sum()
             st.metric(
                 f"💰 **{period_label} Revenue**",
                 f"Rp {grand_total_val/1_000_000_000:,.2f}B",
-                f"Avg: Rp {avg_monthly/1_000_000_000:,.1f}B/mo"
+                f"@ floor price"
             )
         
         with k3:
-            avg_floor_price = calc_df['floor_price'].mean() if not calc_df.empty and calc_df['floor_price'].sum() > 0 else 0
-            st.metric(
-                f"📊 **Average Price**",
-                f"Rp {avg_floor_price:,.0f}",
-                f"{len(calc_df):,} SKUs"
-            )
+            # PERBAIKAN: M1-M3 vs L3M Growth (apple to apple)
+            if l3m_avg_qty > 0 and m1_m3_qty > 0:
+                # Hitung growth M1-M3 vs L3M
+                m1_m3_l3m_growth = ((m1_m3_qty / (l3m_avg_qty * len(m1_m3_months))) - 1) * 100
+                
+                st.metric(
+                    f"📈 **M1-M3 vs L3M**",
+                    f"{m1_m3_qty:,.0f}",
+                    f"L3M: {l3m_avg_qty*3:,.0f} ({m1_m3_l3m_growth:+.1f}%)"
+                )
+            else:
+                st.metric(
+                    f"📈 **M1-M3 vs L3M**",
+                    f"{m1_m3_qty:,.0f}",
+                    f"L3M data unavailable"
+                )
     
     st.markdown("---")
     
-    # Prepare chart data
+    # Prepare chart data based on view type
     chart_data = []
     
     if chart_view == "Total Volume":
         for m in active_months:
             qty = calc_df[f'Final_Qty_{m}'].sum()
-            val = calc_df[f'Final_Val_{m}'].sum()
             chart_data.append({
                 "Month": m,
                 "Volume": qty,
-                "Value": val
+                "Type": "Total"
             })
     
     elif chart_view == "Breakdown by Brand":
@@ -1237,58 +1260,182 @@ with tab2:
     
     chart_df = pd.DataFrame(chart_data)
     
-    # Create chart
-    fig = go.Figure()
-    
-    if chart_view == "Total Volume":
-        fig.add_trace(go.Bar(
-            x=chart_df['Month'],
-            y=chart_df['Volume'],
-            name='Volume (Units)',
-            marker_color='#3B82F6',
-            opacity=0.85
-        ))
-    
-    elif chart_view == "Breakdown by Brand":
-        brands = chart_df['Brand'].unique()
-        colors = px.colors.qualitative.Set3
+    # PERBAIKAN 3: Layout dengan Chart dan Table berdampingan
+    if chart_view == "Breakdown by Brand":
+        # Untuk breakdown by brand, tampilkan chart dan table
+        chart_col, table_col = st.columns([2, 1])
         
-        for i, brand in enumerate(brands):
-            brand_data = chart_df[chart_df['Brand'] == brand]
-            fig.add_trace(go.Bar(
-                x=brand_data['Month'],
-                y=brand_data['Volume'],
-                name=brand,
-                marker_color=colors[i % len(colors)]
-            ))
-        fig.update_layout(barmode='stack')
-    
-    elif chart_view == "Channel Comparison":
-        channels = chart_df['Channel'].unique()
-        colors = px.colors.qualitative.Set2
+        with chart_col:
+            # Create chart
+            fig = go.Figure()
+            
+            brands = chart_df['Brand'].unique()
+            colors = px.colors.qualitative.Set3
+            
+            for i, brand in enumerate(brands):
+                brand_data = chart_df[chart_df['Brand'] == brand]
+                fig.add_trace(go.Bar(
+                    x=brand_data['Month'],
+                    y=brand_data['Volume'],
+                    name=brand,
+                    marker_color=colors[i % len(colors)],
+                    hovertemplate=f'<b>{brand}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
+                ))
+            
+            fig.update_layout(
+                title=f"📊 Brand Breakdown - {period_label} Horizon",
+                yaxis_title="Volume (Units)",
+                xaxis_title="Month",
+                xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
+                barmode='stack',
+                legend=dict(orientation='h', y=1.1),
+                height=500
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
         
-        for i, channel in enumerate(channels):
-            channel_data = chart_df[chart_df['Channel'] == channel]
+        with table_col:
+            st.markdown("### 📋 Brand Summary")
+            
+            # Create brand summary table
+            brand_summary_data = []
+            
+            for brand in brands:
+                brand_total = chart_df[chart_df['Brand'] == brand]['Volume'].sum()
+                brand_avg = brand_total / len(active_months) if active_months else 0
+                
+                # Calculate percentage of total
+                total_volume = chart_df['Volume'].sum()
+                brand_pct = (brand_total / total_volume * 100) if total_volume > 0 else 0
+                
+                brand_summary_data.append({
+                    "Brand": brand,
+                    "Total": f"{brand_total:,.0f}",
+                    "Avg/Month": f"{brand_avg:,.0f}",
+                    "Share": f"{brand_pct:.1f}%"
+                })
+            
+            # Create and display table
+            brand_summary_df = pd.DataFrame(brand_summary_data)
+            brand_summary_df = brand_summary_df.sort_values("Total", key=lambda x: x.str.replace(',', '').astype(float), ascending=False)
+            
+            # Apply some styling
+            st.dataframe(
+                brand_summary_df,
+                use_container_width=True,
+                height=500,
+                column_config={
+                    "Brand": st.column_config.TextColumn("Brand", width="medium"),
+                    "Total": st.column_config.TextColumn("Total Volume", width="small"),
+                    "Avg/Month": st.column_config.TextColumn("Avg/Month", width="small"),
+                    "Share": st.column_config.TextColumn("Share %", width="small")
+                }
+            )
+    
+    else:
+        # Untuk view lainnya (Total Volume, Channel Comparison), tampilkan chart saja
+        # Create chart
+        fig = go.Figure()
+        
+        if chart_view == "Total Volume":
             fig.add_trace(go.Bar(
-                x=channel_data['Month'],
-                y=channel_data['Volume'],
-                name=channel,
-                marker_color=colors[i % len(colors)]
+                x=chart_df['Month'],
+                y=chart_df['Volume'],
+                name='Volume (Units)',
+                marker_color='#3B82F6',
+                opacity=0.85,
+                hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<extra></extra>'
             ))
-        fig.update_layout(barmode='stack')
+            
+            # Add L3M average line for reference
+            if l3m_avg_qty > 0:
+                fig.add_hline(
+                    y=l3m_avg_qty,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"L3M Avg: {l3m_avg_qty:,.0f}",
+                    annotation_position="top right"
+                )
+        
+        elif chart_view == "Channel Comparison":
+            channels = chart_df['Channel'].unique()
+            colors = px.colors.qualitative.Set2
+            
+            for i, channel in enumerate(channels):
+                channel_data = chart_df[chart_df['Channel'] == channel]
+                fig.add_trace(go.Bar(
+                    x=channel_data['Month'],
+                    y=channel_data['Volume'],
+                    name=channel,
+                    marker_color=colors[i % len(colors)],
+                    hovertemplate=f'<b>{channel}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
+                ))
+            fig.update_layout(barmode='stack')
+        
+        # Update layout
+        fig.update_layout(
+            title=f"📈 {chart_view} - {period_label} Horizon",
+            yaxis_title="Volume (Units)",
+            xaxis_title="Month",
+            xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
+            legend=dict(orientation='h', y=1.1),
+            height=500
+        )
+        
+        # Display chart
+        st.plotly_chart(fig, use_container_width=True)
     
-    # Update layout
-    fig.update_layout(
-        title=f"📈 {chart_view} - {period_label} Horizon",
-        yaxis_title="Volume (Units)",
-        xaxis_title="Month",
-        xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
-        legend=dict(orientation='h', y=1.1),
-        height=500
-    )
-    
-    # Display chart
-    st.plotly_chart(fig, use_container_width=True)
+    # PERBAIKAN 4: Tambah detailed table di expander
+    with st.expander("📋 **View Detailed Monthly Data**", expanded=False):
+        # Create pivot table for monthly data
+        if chart_view == "Breakdown by Brand":
+            pivot_df = chart_df.pivot_table(
+                index='Brand',
+                columns='Month',
+                values='Volume',
+                aggfunc='sum',
+                fill_value=0
+            ).reset_index()
+            
+            # Add total column
+            pivot_df['Total'] = pivot_df.iloc[:, 1:].sum(axis=1)
+            pivot_df = pivot_df.sort_values('Total', ascending=False)
+            
+            # Format numbers
+            for col in pivot_df.columns:
+                if col != 'Brand':
+                    pivot_df[col] = pivot_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "0")
+        
+        elif chart_view == "Channel Comparison":
+            pivot_df = chart_df.pivot_table(
+                index='Channel',
+                columns='Month',
+                values='Volume',
+                aggfunc='sum',
+                fill_value=0
+            ).reset_index()
+            
+            pivot_df['Total'] = pivot_df.iloc[:, 1:].sum(axis=1)
+            pivot_df = pivot_df.sort_values('Total', ascending=False)
+            
+            for col in pivot_df.columns:
+                if col != 'Channel':
+                    pivot_df[col] = pivot_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "0")
+        
+        else:  # Total Volume
+            monthly_totals = chart_df.groupby('Month')['Volume'].sum().reset_index()
+            monthly_totals = monthly_totals.sort_values('Month', key=lambda x: x.apply(parse_month_year))
+            
+            # Calculate cumulative
+            monthly_totals['Cumulative'] = monthly_totals['Volume'].cumsum()
+            
+            # Format
+            monthly_totals['Volume'] = monthly_totals['Volume'].apply(lambda x: f"{x:,.0f}")
+            monthly_totals['Cumulative'] = monthly_totals['Cumulative'].apply(lambda x: f"{x:,.0f}")
+            
+            pivot_df = monthly_totals
+        
+        st.dataframe(pivot_df, use_container_width=True, height=400)
 
 # ============================================================================
 # TAB 3: SUMMARY REPORTS (SIMPLIFIED)
