@@ -696,21 +696,19 @@ with tab1:
         if hist_cols:
             hist_cols = hist_cols[-3:]  # Last 3 historical months in correct order
         
-        # Build column list - PERBAIKAN: TAMPILKAN SEMUA BULAN
+        # Build column list
         display_cols = base_cols.copy()
         
         if hist_cols:
             display_cols.extend(hist_cols)
         
         display_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
-        
-        # PERBAIKAN 1: Tampilkan SEMUA bulan horizon di tabel
         display_cols.extend(horizon_months)
         
-        # PERBAIKAN 2: Tambah persentase hanya untuk adjustment months
+        # PERBAIKAN: Tambah persentase hanya untuk adjustment months
         display_cols.extend([f'{m}_%' for m in adjustment_months])
         
-        # PERBAIKAN 3: Tambah consensus columns untuk semua adjustment months
+        # PERBAIKAN: Tambah consensus columns untuk semua adjustment months
         display_cols.extend([f'Cons_{m}' for m in adjustment_months])
         
         # Remove duplicates and ensure columns exist
@@ -841,16 +839,6 @@ with tab1:
             }
         """)
         
-        js_readonly_month = JsCode("""
-            function(params) {
-                return {
-                    'backgroundColor': '#F9FAFB',
-                    'color': '#6B7280',
-                    'fontStyle': 'italic'
-                };
-            }
-        """)
-        
         # Configure GridOptions
         gb = GridOptionsBuilder.from_dataframe(ag_df)
         
@@ -933,43 +921,24 @@ with tab1:
                           suppressSizeToFit=True,
                           headerName="Month Cover")
         
-        # PERBAIKAN KRITIS: Konfigurasi untuk bulan-bulan horizon
-        for m in horizon_months:
-            if m in adjustment_months:
-                # Untuk bulan adjustment (Feb-26, Mar-26, Apr-26):
-                # Tampilkan kolom rofo_current ASLI (read-only) dan kolom Cons_ (editable)
-                # Kolom rofo_current (Feb-26, Mar-26, Apr-26) - READ ONLY
-                gb.configure_column(m,
-                                  headerName=f"ROFO {m}",
-                                  type=["numericColumn"],
-                                  valueFormatter="params.value ? params.value.toLocaleString() : ''",
-                                  cellStyle=js_readonly_month,
-                                  minWidth=100,
-                                  maxWidth=120,
-                                  suppressSizeToFit=True,
-                                  editable=False)
-            else:
-                # Untuk bulan non-adjustment (Mei-26 sampai Jan-27) - READ ONLY
-                gb.configure_column(m,
-                                  headerName=f"ROFO {m}",
-                                  type=["numericColumn"],
-                                  valueFormatter="params.value ? params.value.toLocaleString() : ''",
-                                  cellStyle=js_readonly_month,
-                                  minWidth=100,
-                                  maxWidth=120,
-                                  suppressSizeToFit=True,
-                                  editable=False)
+        # PERBAIKAN: Sembunyikan bulan-bulan yang tidak dalam adjustment jika mode default
+        if not show_all_months:
+            # Dalam mode default, sembunyikan bulan M4-M12 dari horizon
+            for m in horizon_months:
+                if m not in adjustment_months:
+                    gb.configure_column(m, hide=True)
         
-        # Configure numeric columns untuk historical months
-        for col in hist_cols:
-            if col in display_cols:
+        # Configure numeric columns (historical and forecast months)
+        for col in display_cols:
+            if col not in ['sku_code', 'Product_Name', 'Channel', 'Brand', 'SKU_Tier', 
+                          'Month_Cover', 'Product_Focus', 'floor_price'] and '%' not in col:
                 gb.configure_column(col,
                                   type=["numericColumn"],
                                   valueFormatter="params.value ? params.value.toLocaleString() : ''",
                                   minWidth=95,
-                                  maxWidth=110,
-                                  suppressSizeToFit=True,
-                                  headerName=f"Hist {col}")
+                                  maxWidth=130,
+                                  flex=1,
+                                  suppressSizeToFit=False)
         
         # PERBAIKAN: Percentage columns hanya untuk adjustment months
         for m in adjustment_months:
@@ -989,7 +958,7 @@ with tab1:
             cons_col = f'Cons_{m}'
             if cons_col in display_cols:
                 gb.configure_column(cons_col,
-                                  headerName=f"✏️ CONS {m}",
+                                  headerName=f"✏️ {m}",
                                   editable=True,
                                   cellStyle=js_edit,
                                   width=105,
@@ -1011,7 +980,6 @@ with tab1:
         # Display the grid
         mode_label = "ALL 12 Months" if show_all_months else f"First {len(adjustment_months)} Months"
         st.markdown(f"**Worksheet:** Editing consensus for {mode_label} ({len(ag_df):,} SKUs)")
-        st.markdown(f"**ROFO Columns:** {', '.join(horizon_months)} | **Editable:** {', '.join([f'CONS {m}' for m in adjustment_months])}")
         
         with stylable_container(
             key="worksheet_container",
@@ -1097,22 +1065,15 @@ with tab1:
         with col_info:
             # Calculate totals for adjustment months
             total_consensus = 0
-            total_rofo = 0
-            
             for m in adjustment_months:
                 cons_col = f'Cons_{m}'
                 if cons_col in updated_df.columns:
                     total_consensus += updated_df[cons_col].sum()
-                # Hitung juga total rofo original
-                if m in updated_df.columns:
-                    total_rofo += updated_df[m].sum()
-            
-            variance = ((total_consensus / total_rofo) - 1) * 100 if total_rofo > 0 else 0
             
             st.metric(
-                "📊 **Consensus vs ROFO**",
+                "📊 **Total Consensus**",
                 f"{total_consensus:,.0f}",
-                f"ROFO: {total_rofo:,.0f} ({variance:+.1f}%)"
+                f"Adjustable Months: {', '.join(adjustment_months[:3])}" + ("..." if len(adjustment_months) > 3 else "")
             )
 
 # ============================================================================
