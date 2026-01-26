@@ -1087,7 +1087,7 @@ with tab1:
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD - ENHANCED
+# TAB 2: ANALYTICS DASHBOARD - ENHANCED (FIXED VERSION)
 # ============================================================================
 with tab2:
     st.markdown("### 📊 Analytics Dashboard")
@@ -1192,11 +1192,12 @@ with tab2:
         period_label = "2026" if show_2026_only else f"{len(active_months)}-Month"
         
         with k1:
-            delta_qty = ((grand_total_qty / (calc_df['L3M_Avg'].sum() * len(active_months) / 3)) - 1) * 100
+            l3m_total = calc_df['L3M_Avg'].sum() * len(active_months) / 3
+            delta_qty = ((grand_total_qty / l3m_total) - 1) * 100 if l3m_total > 0 else 0
             st.metric(
                 f"📦 **{period_label} Volume**",
                 f"{grand_total_qty:,.0f}",
-                f"{delta_qty:+.1f}% vs L3M",
+                f"{delta_qty:+.1f}% vs L3M" if l3m_total > 0 else "No L3M data",
                 delta_color="normal" if delta_qty >= 0 else "inverse"
             )
         
@@ -1209,12 +1210,12 @@ with tab2:
             )
         
         with k3:
-            avg_floor_price = calc_df['floor_price'].mean() if not calc_df.empty else 0
+            avg_floor_price = calc_df['floor_price'].mean() if not calc_df.empty and calc_df['floor_price'].sum() > 0 else 0
             sku_count = len(calc_df)
             st.metric(
                 f"📊 **Average Metrics**",
                 f"{sku_count:,} SKUs",
-                f"Avg Price: Rp {avg_floor_price:,.0f}"
+                f"Avg Price: Rp {avg_floor_price:,.0f}" if avg_floor_price > 0 else "No price data"
             )
     
     st.markdown("---")
@@ -1263,6 +1264,8 @@ with tab2:
                         "Value": row[f'Final_Val_{m}'],
                         "Category": "Channel"
                     })
+        else:
+            st.warning("Channel data not available")
     
     elif chart_view == "Tier Analysis":
         # Group by SKU tier
@@ -1278,69 +1281,79 @@ with tab2:
                         "Value": row[f'Final_Val_{m}'],
                         "Category": "Tier"
                     })
+        else:
+            st.warning("SKU Tier data not available")
     
     # Create dataframe from chart data
+    if not chart_data:
+        st.warning("No data available for the selected chart view")
+        st.stop()
+    
     chart_df = pd.DataFrame(chart_data)
     
-    if chart_df.empty:
-        st.warning("No data available for the selected chart view")
-    else:
-        # Create combo chart
-        fig = go.Figure()
+    # Create combo chart
+    fig = go.Figure()
+    
+    # Determine chart type based on selection
+    if chart_view == "Total Volume":
+        # Bar chart for volume
+        fig.add_trace(go.Bar(
+            x=chart_df['Month'],
+            y=chart_df['Volume'],
+            name='Volume (Units)',
+            marker_color='#3B82F6',
+            opacity=0.85,
+            hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<extra></extra>'
+        ))
         
-        # Determine chart type based on selection
-        if chart_view == "Total Volume":
-            # Bar chart for volume
+        # Line chart for value (secondary axis)
+        fig.add_trace(go.Scatter(
+            x=chart_df['Month'],
+            y=chart_df['Value'],
+            name='Revenue (Rp)',
+            yaxis='y2',
+            line=dict(color='#EF4444', width=3),
+            mode='lines+markers',
+            hovertemplate='<b>%{x}</b><br>Revenue: Rp %{y:,.0f}<extra></extra>'
+        ))
+    
+    elif chart_view in ["Breakdown by Brand", "Channel Comparison", "Tier Analysis"]:
+        # Determine grouping column
+        group_col_map = {
+            "Breakdown by Brand": "Brand",
+            "Channel Comparison": "Channel",
+            "Tier Analysis": "Tier"
+        }
+        group_col = group_col_map.get(chart_view, "Brand")
+        
+        if group_col not in chart_df.columns:
+            st.warning(f"{group_col} data not available for chart")
+            st.stop()
+        
+        # Get unique groups
+        groups = chart_df[group_col].unique()
+        
+        # Color palette
+        colors = px.colors.qualitative.Set3
+        
+        # Create stacked bar chart
+        for i, group in enumerate(groups):
+            group_data = chart_df[chart_df[group_col] == group]
+            
             fig.add_trace(go.Bar(
-                x=chart_df['Month'],
-                y=chart_df['Volume'],
-                name='Volume (Units)',
-                marker_color='#3B82F6',
-                opacity=0.85,
-                hovertemplate='<b>%{x}</b><br>Volume: %{y:,.0f} units<extra></extra>'
-            ))
-            
-            # Line chart for value (secondary axis)
-            fig.add_trace(go.Scatter(
-                x=chart_df['Month'],
-                y=chart_df['Value'],
-                name='Revenue (Rp)',
-                yaxis='y2',
-                line=dict(color='#EF4444', width=3),
-                mode='lines+markers',
-                hovertemplate='<b>%{x}</b><br>Revenue: Rp %{y:,.0f}<extra></extra>'
+                x=group_data['Month'],
+                y=group_data['Volume'],
+                name=str(group),
+                marker_color=colors[i % len(colors)],
+                hovertemplate=f'<b>{group}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
             ))
         
-        elif chart_view in ["Breakdown by Brand", "Channel Comparison", "Tier Analysis"]:
-            # Determine grouping column
-            group_col = {
-                "Breakdown by Brand": "Brand",
-                "Channel Comparison": "Channel",
-                "Tier Analysis": "Tier"
-            }[chart_view]
-            
-            # Get unique groups
-            groups = chart_df[group_col].unique()
-            
-            # Color palette
-            colors = px.colors.qualitative.Set3
-            
-            # Create stacked bar chart
-            for i, group in enumerate(groups):
-                group_data = chart_df[chart_df[group_col] == group]
-                
-                fig.add_trace(go.Bar(
-                    x=group_data['Month'],
-                    y=group_data['Volume'],
-                    name=str(group),
-                    marker_color=colors[i % len(colors)],
-                    hovertemplate=f'<b>{group}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
-                ))
-            
-            # Add value line (total)
-            if 'Value' in chart_df.columns:
+        # Add value line (total) if Value column exists
+        if 'Value' in chart_df.columns and not chart_df.empty:
+            try:
                 monthly_totals = chart_df.groupby('Month')['Volume'].sum().reset_index()
-                monthly_totals['Value_Total'] = chart_df.groupby('Month')['Value'].first().values
+                value_by_month = chart_df.groupby('Month')['Value'].first()
+                monthly_totals['Value_Total'] = monthly_totals['Month'].map(value_by_month)
                 
                 fig.add_trace(go.Scatter(
                     x=monthly_totals['Month'],
@@ -1351,96 +1364,87 @@ with tab2:
                     mode='lines+markers',
                     hovertemplate='<b>Total Revenue</b><br>Month: %{x}<br>Revenue: Rp %{y:,.0f}<extra></extra>'
                 ))
+            except Exception as e:
+                st.warning(f"Could not add revenue line: {str(e)}")
+        
+        fig.update_layout(barmode='stack')
+    
+    # SIMPLIFIED LAYOUT UPDATE - FIXED
+    fig.update_layout(
+        title=f"📈 {chart_view} - {period_label} Horizon",
+        yaxis_title="Volume (Units)",
+        yaxis2=dict(
+            title="Revenue (Rp)",
+            overlaying='y',
+            side='right'
+        ),
+        xaxis_title="Month",
+        xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
+        legend=dict(
+            x=0.02,
+            y=1.02,
+            orientation='h'
+        ),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        height=500,
+        margin=dict(l=50, r=50, t=80, b=80)
+    )
+    
+    # Display chart
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Add breakdown table
+    with st.expander(f"📋 **Detailed {chart_view} Breakdown**", expanded=False):
+        if chart_view == "Breakdown by Brand":
+            # Brand breakdown table
+            brand_summary = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
             
-            fig.update_layout(barmode='stack')
+            # Rename columns
+            rename_dict = {old: old.replace('Final_Val_', '') for old in total_val_cols}
+            brand_summary.rename(columns=rename_dict, inplace=True)
+            
+            brand_summary['Total'] = brand_summary.iloc[:, 1:].sum(axis=1)
+            brand_summary = brand_summary.sort_values('Total', ascending=False)
+            
+            # Format for display
+            display_df = brand_summary.copy()
+            for col in display_df.columns:
+                if col != 'Brand':
+                    display_df[col] = display_df[col].apply(lambda x: f"Rp {x:,.0f}")
+            
+            st.dataframe(display_df, use_container_width=True, height=300)
         
-        # Update layout
-        fig.update_layout(
-            title=dict(
-                text=f"📈 {chart_view} - {period_label} Horizon",
-                font=dict(size=18, color='#1F2937'),
-                x=0.05
-            ),
-            yaxis=dict(
-                title="Volume (Units)",
-                titlefont=dict(size=14),
-                showgrid=True,
-                gridcolor='#E5E7EB',
-                zeroline=False
-            ),
-            yaxis2=dict(
-                title="Revenue (Rp)",
-                titlefont=dict(size=14, color='#EF4444'),
-                overlaying='y',
-                side='right',
-                showgrid=False,
-                zeroline=False
-            ),
-            xaxis=dict(
-                title="Month",
-                titlefont=dict(size=14),
-                tickangle=45 if len(active_months) > 6 else 0,
-                showgrid=False
-            ),
-            legend=dict(
-                x=0.02,
-                y=1.02,
-                orientation='h',
-                bgcolor='rgba(255, 255, 255, 0.8)',
-                bordercolor='#E5E7EB',
-                borderwidth=1
-            ),
-            hovermode='x unified',
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            height=500,
-            margin=dict(l=50, r=50, t=80, b=80)
-        )
-        
-        # Display chart
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Add breakdown table
-        with st.expander(f"📋 **Detailed {chart_view} Breakdown**", expanded=False):
-            if chart_view == "Breakdown by Brand":
-                # Brand breakdown table
-                brand_summary = calc_df.groupby('Brand')[total_val_cols].sum().reset_index()
-                brand_summary.rename(columns={old: old.replace('Final_Val_', '') 
-                                            for old in total_val_cols}, inplace=True)
-                brand_summary['Total'] = brand_summary.iloc[:, 1:].sum(axis=1)
-                brand_summary = brand_summary.sort_values('Total', ascending=False)
+        elif chart_view == "Channel Comparison":
+            # Channel breakdown
+            if 'Channel' in calc_df.columns:
+                channel_summary = calc_df.groupby('Channel')[total_val_cols].sum().reset_index()
                 
-                # Format for display
-                display_df = brand_summary.copy()
-                for col in display_df.columns:
-                    if col != 'Brand':
-                        display_df[col] = display_df[col].apply(lambda x: f"Rp {x:,.0f}")
+                # Rename columns
+                rename_dict = {old: old.replace('Final_Val_', '') for old in total_val_cols}
+                channel_summary.rename(columns=rename_dict, inplace=True)
                 
-                st.dataframe(display_df, use_container_width=True, height=300)
-            
-            elif chart_view == "Channel Comparison":
-                # Channel breakdown
-                if 'Channel' in calc_df.columns:
-                    channel_summary = calc_df.groupby('Channel')[total_val_cols].sum().reset_index()
-                    channel_summary.rename(columns={old: old.replace('Final_Val_', '') 
-                                                  for old in total_val_cols}, inplace=True)
-                    channel_summary['Total'] = channel_summary.iloc[:, 1:].sum(axis=1)
-                    channel_summary = channel_summary.sort_values('Total', ascending=False)
-                    
-                    # Display
-                    st.dataframe(channel_summary, use_container_width=True, height=200)
-            
-            elif chart_view == "Tier Analysis":
-                # Tier breakdown
-                if 'SKU_Tier' in calc_df.columns:
-                    tier_summary = calc_df.groupby('SKU_Tier')[total_val_cols].sum().reset_index()
-                    tier_summary.rename(columns={old: old.replace('Final_Val_', '') 
-                                               for old in total_val_cols}, inplace=True)
-                    tier_summary['Total'] = tier_summary.iloc[:, 1:].sum(axis=1)
-                    tier_summary = tier_summary.sort_values('Total', ascending=False)
-                    
-                    # Display
-                    st.dataframe(tier_summary, use_container_width=True, height=200)
+                channel_summary['Total'] = channel_summary.iloc[:, 1:].sum(axis=1)
+                channel_summary = channel_summary.sort_values('Total', ascending=False)
+                
+                # Display
+                st.dataframe(channel_summary, use_container_width=True, height=200)
+        
+        elif chart_view == "Tier Analysis":
+            # Tier breakdown
+            if 'SKU_Tier' in calc_df.columns:
+                tier_summary = calc_df.groupby('SKU_Tier')[total_val_cols].sum().reset_index()
+                
+                # Rename columns
+                rename_dict = {old: old.replace('Final_Val_', '') for old in total_val_cols}
+                tier_summary.rename(columns=rename_dict, inplace=True)
+                
+                tier_summary['Total'] = tier_summary.iloc[:, 1:].sum(axis=1)
+                tier_summary = tier_summary.sort_values('Total', ascending=False)
+                
+                # Display
+                st.dataframe(tier_summary, use_container_width=True, height=200)
 
 # ============================================================================
 # TAB 3: SUMMARY REPORTS
