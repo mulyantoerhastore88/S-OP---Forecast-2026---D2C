@@ -640,7 +640,12 @@ if filtered_skus < total_skus:
     st.success(f"✅ Showing {filtered_skus:,} of {total_skus:,} SKUs ({filtered_skus/total_skus*100:.1f}%)")
 
 # Create tabs
-tab1, tab2, tab3 = st.tabs(["📝 Forecast Worksheet", "📈 Analytics Dashboard", "📊 Summary Reports"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📝 Forecast Worksheet", 
+    "📈 Analytics Dashboard", 
+    "📊 Summary Reports", 
+    "🤖 AI Demand Sensing"
+])
 
 # ============================================================================
 # TAB 1: FORECAST WORKSHEET - PERBAIKAN: TAMPILKAN SEMUA BULAN SESUAI SETTING
