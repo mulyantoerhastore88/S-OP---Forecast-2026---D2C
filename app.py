@@ -1077,7 +1077,7 @@ with tab1:
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD - IMPROVED VERSION WITH REVENUE IN TABLE
+# TAB 2: ANALYTICS DASHBOARD - WITH STYLIZED TABLE ABOVE CHART
 # ============================================================================
 with tab2:
     st.markdown("### 📊 Analytics Dashboard")
@@ -1164,7 +1164,7 @@ with tab2:
     # Calculate L3M total
     l3m_avg_qty = calc_df['L3M_Avg'].sum()
     
-    # Display KPIs - Metrics yang meaningful
+    # Display KPIs
     with stylable_container(
         key="analytics_kpi",
         css_styles="""
@@ -1193,7 +1193,7 @@ with tab2:
             grand_total_val = calc_df[total_val_cols].sum().sum()
             st.metric(
                 f"💰 **{period_label} Revenue**",
-                f"Rp {grand_total_val/1_000_000_000:,.2f}B",
+                f"Rp {grand_total_val:,.0f}",
                 f"@ floor price"
             )
         
@@ -1255,102 +1255,194 @@ with tab2:
     
     chart_df = pd.DataFrame(chart_data)
     
-    # Layout dengan Chart dan Table berdampingan untuk Breakdown by Brand
+    # Untuk Breakdown by Brand: Tampilkan TABLE di atas CHART
     if chart_view == "Breakdown by Brand":
-        chart_col, table_col = st.columns([2, 1])
+        brands = chart_df['Brand'].unique()
         
-        with chart_col:
-            # Create chart
-            fig = go.Figure()
-            
-            brands = chart_df['Brand'].unique()
-            colors = px.colors.qualitative.Set3
-            
-            for i, brand in enumerate(brands):
-                brand_data = chart_df[chart_df['Brand'] == brand]
-                fig.add_trace(go.Bar(
-                    x=brand_data['Month'],
-                    y=brand_data['Volume'],
-                    name=brand,
-                    marker_color=colors[i % len(colors)],
-                    hovertemplate=f'<b>{brand}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
-                ))
-            
-            fig.update_layout(
-                title=f"📊 Brand Breakdown - {period_label} Horizon",
-                yaxis_title="Volume (Units)",
-                xaxis_title="Month",
-                xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
-                barmode='stack',
-                legend=dict(orientation='h', y=1.1),
-                height=500
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+        # ========== BRAND SUMMARY TABLE WITH STYLING ==========
+        st.markdown("### 📋 Brand Performance Summary")
         
-        with table_col:
-            st.markdown("### 📋 Brand Summary")
+        # Hitung data untuk tabel
+        brand_summary_data = []
+        
+        for brand in brands:
+            brand_df = calc_df[calc_df['Brand'] == brand]
             
-            # Hitung revenue untuk setiap brand - VERSI SEDERHANA
-            brand_summary_data = []
+            brand_volume_total = 0
+            brand_revenue_total = 0
             
-            for brand in brands:
-                brand_df = calc_df[calc_df['Brand'] == brand]
+            for m in active_months:
+                qty_col = f'Final_Qty_{m}'
+                val_col = f'Final_Val_{m}'
                 
-                brand_volume_total = 0
-                brand_revenue_total = 0
+                if qty_col in brand_df.columns:
+                    brand_volume_total += brand_df[qty_col].sum()
                 
-                for m in active_months:
-                    qty_col = f'Final_Qty_{m}'
-                    val_col = f'Final_Val_{m}'
-                    
-                    if qty_col in brand_df.columns:
-                        brand_volume_total += brand_df[qty_col].sum()
-                    
-                    if val_col in brand_df.columns:
-                        brand_revenue_total += brand_df[val_col].sum()
-                
-                # Hitung percentage share
-                total_revenue = calc_df[total_val_cols].sum().sum() if total_val_cols else 0
-                revenue_share = (brand_revenue_total / total_revenue * 100) if total_revenue > 0 else 0
-                
-                brand_summary_data.append({
-                    "Brand": brand,
-                    "Volume": f"{brand_volume_total:,.0f}",
-                    "Revenue": f"Rp {brand_revenue_total/1_000_000:,.1f}M",
-                    "Share": f"{revenue_share:.1f}%"
-                })
+                if val_col in brand_df.columns:
+                    brand_revenue_total += brand_df[val_col].sum()
             
-            # Create DataFrame
-            brand_summary_df = pd.DataFrame(brand_summary_data)
+            # Hitung percentage share
+            total_revenue = calc_df[total_val_cols].sum().sum() if total_val_cols else 0
+            revenue_share = (brand_revenue_total / total_revenue * 100) if total_revenue > 0 else 0
             
-            # Sort by Revenue (convert ke numeric)
-            def extract_revenue(value):
-                if isinstance(value, str):
-                    match = re.search(r'Rp\s*([\d,.]+)M', value)
-                    if match:
-                        return float(match.group(1).replace(',', ''))
-                return 0
+            brand_summary_data.append({
+                "Brand": brand,
+                "Volume": brand_volume_total,
+                "Revenue": brand_revenue_total,
+                "Share": revenue_share
+            })
+        
+        # Create DataFrame
+        brand_summary_df = pd.DataFrame(brand_summary_data)
+        brand_summary_df = brand_summary_df.sort_values('Revenue', ascending=False)
+        
+        # Style the dataframe with color scales
+        def style_brand_table(df):
+            # Format numbers
+            styled_df = df.copy()
+            styled_df['Volume'] = styled_df['Volume'].apply(lambda x: f"{x:,.0f}")
+            styled_df['Revenue'] = styled_df['Revenue'].apply(lambda x: f"Rp {x:,.0f}")
+            styled_df['Share'] = styled_df['Share'].apply(lambda x: f"{x:.1f}%")
             
-            brand_summary_df['_sort'] = brand_summary_df['Revenue'].apply(extract_revenue)
-            brand_summary_df = brand_summary_df.sort_values('_sort', ascending=False)
-            brand_summary_df = brand_summary_df.drop('_sort', axis=1)
-            
-            # Display table
-            st.dataframe(
-                brand_summary_df,
-                use_container_width=True,
-                height=500,
-                column_config={
-                    "Brand": st.column_config.TextColumn("Brand", width="medium"),
-                    "Volume": st.column_config.TextColumn("Volume", width="small"),
-                    "Revenue": st.column_config.TextColumn("Revenue (Rp)", width="medium"),
-                    "Share": st.column_config.TextColumn("Share %", width="small")
+            # Create HTML table dengan styling
+            html = """
+            <style>
+                .brand-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-family: Arial, sans-serif;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    border-radius: 10px;
+                    overflow: hidden;
                 }
-            )
+                .brand-table th {
+                    background: linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%);
+                    color: white;
+                    padding: 12px 15px;
+                    text-align: left;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                .brand-table td {
+                    padding: 12px 15px;
+                    border-bottom: 1px solid #e2e8f0;
+                    font-size: 13px;
+                }
+                .brand-table tr:nth-child(even) {
+                    background-color: #f8fafc;
+                }
+                .brand-table tr:hover {
+                    background-color: #f1f5f9;
+                }
+                .rank-1 { background-color: #FFFBEB !important; border-left: 4px solid #F59E0B; }
+                .rank-2 { background-color: #FEF3C7 !important; border-left: 4px solid #FBBF24; }
+                .rank-3 { background-color: #FEF3C7 !important; border-left: 4px solid #FBBF24; }
+                .revenue-cell { font-weight: bold; color: #059669; }
+                .share-high { color: #059669; font-weight: bold; }
+                .share-medium { color: #D97706; }
+                .share-low { color: #DC2626; }
+            </style>
+            <table class="brand-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Brand</th>
+                        <th>Volume</th>
+                        <th>Revenue (Rp)</th>
+                        <th>Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """
+            
+            for idx, row in df.iterrows():
+                # Determine row class based on rank
+                rank_class = ""
+                if idx == 0:
+                    rank_class = "rank-1"
+                elif idx == 1:
+                    rank_class = "rank-2"
+                elif idx == 2:
+                    rank_class = "rank-3"
+                
+                # Determine share color class
+                share = row['Share']
+                share_class = ""
+                if share > 20:
+                    share_class = "share-high"
+                elif share > 5:
+                    share_class = "share-medium"
+                else:
+                    share_class = "share-low"
+                
+                html += f"""
+                <tr class="{rank_class}">
+                    <td><strong>{idx + 1}</strong></td>
+                    <td><strong>{row['Brand']}</strong></td>
+                    <td>{styled_df.iloc[idx]['Volume']}</td>
+                    <td class="revenue-cell">{styled_df.iloc[idx]['Revenue']}</td>
+                    <td class="{share_class}">{styled_df.iloc[idx]['Share']}</td>
+                </tr>
+                """
+            
+            html += """
+                </tbody>
+            </table>
+            """
+            
+            return html
+        
+        # Display styled table
+        st.markdown(style_brand_table(brand_summary_df), unsafe_allow_html=True)
+        
+        # Tambah small metrics di bawah tabel
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("🏆 Top Brand", brand_summary_df.iloc[0]['Brand'] if len(brand_summary_df) > 0 else "N/A")
+        with col2:
+            top_revenue = brand_summary_df.iloc[0]['Revenue'] if len(brand_summary_df) > 0 else 0
+            st.metric("💰 Top Revenue", f"Rp {top_revenue:,.0f}")
+        with col3:
+            top_share = brand_summary_df.iloc[0]['Share'] if len(brand_summary_df) > 0 else 0
+            st.metric("📊 Top Share", f"{top_share:.1f}%")
+        with col4:
+            total_brands = len(brand_summary_df)
+            st.metric("🏷️ Total Brands", f"{total_brands}")
+        
+        st.markdown("---")
+        
+        # ========== CHART DI BAWAH TABLE ==========
+        st.markdown("### 📈 Brand Volume Trend")
+        
+        # Create chart
+        fig = go.Figure()
+        
+        colors = px.colors.qualitative.Set3
+        
+        for i, brand in enumerate(brands):
+            brand_data = chart_df[chart_df['Brand'] == brand]
+            fig.add_trace(go.Bar(
+                x=brand_data['Month'],
+                y=brand_data['Volume'],
+                name=brand,
+                marker_color=colors[i % len(colors)],
+                hovertemplate=f'<b>{brand}</b><br>Month: %{{x}}<br>Volume: %{{y:,.0f}}<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title=f"Monthly Volume by Brand - {period_label} Horizon",
+            yaxis_title="Volume (Units)",
+            xaxis_title="Month",
+            xaxis=dict(tickangle=45 if len(active_months) > 6 else 0),
+            barmode='stack',
+            legend=dict(orientation='h', y=1.1),
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
     else:
-        # Untuk Total Volume dan Channel Comparison
+        # Untuk Total Volume dan Channel Comparison (tanpa table khusus)
         fig = go.Figure()
         
         if chart_view == "Total Volume":
@@ -1403,7 +1495,7 @@ with tab2:
     # Detailed monthly data di expander
     with st.expander("📋 **View Detailed Monthly Data**", expanded=False):
         if chart_view == "Breakdown by Brand":
-            # Buat pivot table untuk volume
+            # Buat pivot table
             volume_pivot = chart_df.pivot_table(
                 index='Brand',
                 columns='Month',
@@ -1412,53 +1504,17 @@ with tab2:
                 fill_value=0
             ).reset_index()
             
-            # Hitung revenue untuk pivot table
-            revenue_data = []
-            for brand in brands:
-                brand_df = calc_df[calc_df['Brand'] == brand]
-                brand_revenues = {}
-                
-                for m in active_months:
-                    val_col = f'Final_Val_{m}'
-                    if val_col in brand_df.columns:
-                        brand_revenues[m] = brand_df[val_col].sum()
-                    else:
-                        brand_revenues[m] = 0
-                
-                revenue_data.append({'Brand': brand, **brand_revenues})
+            # Hitung total
+            volume_pivot['Total Volume'] = volume_pivot.iloc[:, 1:].sum(axis=1)
+            volume_pivot = volume_pivot.sort_values('Total Volume', ascending=False)
             
-            revenue_pivot = pd.DataFrame(revenue_data)
+            # Format untuk display
+            display_df = volume_pivot.copy()
+            for col in display_df.columns:
+                if col != 'Brand':
+                    display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f}")
             
-            # Gabungkan volume dan revenue
-            tab1, tab2 = st.tabs(["📦 Volume by Month", "💰 Revenue by Month"])
-            
-            with tab1:
-                volume_pivot['Total Volume'] = volume_pivot.iloc[:, 1:].sum(axis=1)
-                volume_pivot = volume_pivot.sort_values('Total Volume', ascending=False)
-                
-                # Format numbers
-                for col in volume_pivot.columns:
-                    if col != 'Brand':
-                        if col == 'Total Volume':
-                            volume_pivot[col] = volume_pivot[col].apply(lambda x: f"{x:,.0f}")
-                        else:
-                            volume_pivot[col] = volume_pivot[col].apply(lambda x: f"{x:,.0f}")
-                
-                st.dataframe(volume_pivot, use_container_width=True, height=400)
-            
-            with tab2:
-                revenue_pivot['Total Revenue'] = revenue_pivot.iloc[:, 1:].sum(axis=1)
-                revenue_pivot = revenue_pivot.sort_values('Total Revenue', ascending=False)
-                
-                # Format revenue numbers
-                for col in revenue_pivot.columns:
-                    if col != 'Brand':
-                        if col == 'Total Revenue':
-                            revenue_pivot[col] = revenue_pivot[col].apply(lambda x: f"Rp {x:,.0f}")
-                        else:
-                            revenue_pivot[col] = revenue_pivot[col].apply(lambda x: f"Rp {x:,.0f}")
-                
-                st.dataframe(revenue_pivot, use_container_width=True, height=400)
+            st.dataframe(display_df, use_container_width=True, height=400)
         
         elif chart_view == "Channel Comparison":
             pivot_df = chart_df.pivot_table(
@@ -1482,24 +1538,12 @@ with tab2:
             monthly_totals = chart_df.groupby('Month')['Volume'].sum().reset_index()
             monthly_totals = monthly_totals.sort_values('Month', key=lambda x: x.apply(parse_month_year))
             
-            # Hitung revenue juga
-            monthly_revenue = []
-            for m in active_months:
-                val_col = f'Final_Val_{m}'
-                if val_col in calc_df.columns:
-                    monthly_revenue.append(calc_df[val_col].sum())
-                else:
-                    monthly_revenue.append(0)
-            
-            monthly_totals['Revenue'] = monthly_revenue
-            monthly_totals['Cumulative Volume'] = monthly_totals['Volume'].cumsum()
-            monthly_totals['Cumulative Revenue'] = monthly_totals['Revenue'].cumsum()
+            # Hitung cumulative
+            monthly_totals['Cumulative'] = monthly_totals['Volume'].cumsum()
             
             # Format
             monthly_totals['Volume'] = monthly_totals['Volume'].apply(lambda x: f"{x:,.0f}")
-            monthly_totals['Revenue'] = monthly_totals['Revenue'].apply(lambda x: f"Rp {x:,.0f}")
-            monthly_totals['Cumulative Volume'] = monthly_totals['Cumulative Volume'].apply(lambda x: f"{x:,.0f}")
-            monthly_totals['Cumulative Revenue'] = monthly_totals['Cumulative Revenue'].apply(lambda x: f"Rp {x:,.0f}")
+            monthly_totals['Cumulative'] = monthly_totals['Cumulative'].apply(lambda x: f"{x:,.0f}")
             
             st.dataframe(monthly_totals, use_container_width=True, height=400)
 
