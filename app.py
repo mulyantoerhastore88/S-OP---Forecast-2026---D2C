@@ -1225,31 +1225,39 @@ with tab2:
         fig.update_traces(fillcolor="rgba(30, 64, 175, 0.2)", line_width=4)
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- Insight Expander (FIXED) ---
+    # --- Insight Expander (FIXED - ANTI FAIL) ---
     with st.expander("💡 Key Strategic Insights", expanded=True):
-        # Cek apakah kolom Total_Forecast ada, jika tidak, kita hitung on-the-fly
-        if 'Total_Forecast' not in base_df.columns:
-            # Hitung total dari semua kolom Qty_ yang baru kita buat
-            qty_cols = [f'Qty_{m}' for m in active_months]
-            base_df['Total_Forecast_Analytic'] = base_df[qty_cols].sum(axis=1)
-            target_col = 'Total_Forecast_Analytic'
-        else:
-            target_col = 'Total_Forecast'
-
-        if not base_df.empty and base_df[target_col].sum() > 0:
-            top_sku_idx = base_df[target_col].idxmax()
-            top_sku = base_df.loc[top_sku_idx]
+        try:
+            # 1. Cari SKU Terpopuler berdasarkan total qty yang baru dihitung (total_vol)
+            # Kita cari langsung dari calc_df yang sudah pasti punya kolom Qty_
+            qty_cols_available = [c for c in calc_df.columns if c.startswith('Qty_')]
             
-            st.write(f"🌟 **Leading SKU:** `{top_sku['Product_Name']}` adalah pendorong volume terbesar dalam siklus ini.")
-            
-            # Tambahan insight tentang inventory
-            low_stock = base_df[base_df['Month_Cover'] < 0.5].shape[0]
-            if low_stock > 0:
-                st.warning(f"⚠️ **Stock Alert:** Ada {low_stock} SKU dengan level stok kritis (<0.5 MoS).")
+            if qty_cols_available and not calc_df.empty:
+                # Hitung total per baris khusus untuk analisis ini
+                temp_total = calc_df[qty_cols_available].sum(axis=1)
+                top_idx = temp_total.idxmax()
+                top_sku_name = calc_df.loc[top_idx, 'Product_Name']
+                top_sku_val = temp_total.max()
+                
+                st.write(f"🌟 **Leading SKU:** `{top_sku_name}` adalah pendorong volume terbesar dengan proyeksi **{top_sku_val:,.0f} units**.")
             else:
-                st.success("✅ **Inventory Health:** Tidak ada proyeksi stock-out kritis untuk filter yang dipilih.")
-        else:
-            st.info("ℹ️ Belum ada data forecast untuk dianalisis.")
+                st.write("🌟 **Leading SKU:** Belum ada data volume yang terhitung.")
+
+            # 2. Analisis Stok (Gunakan kolom Month_Cover yang sudah ada dari loader)
+            if 'Month_Cover' in calc_df.columns:
+                low_stock_count = len(calc_df[calc_df['Month_Cover'] < 0.5])
+                if low_stock_count > 0:
+                    st.warning(f"⚠️ **Stock Alert:** Ada {low_stock_count} SKU dengan level stok kritis (<0.5 MoS).")
+                else:
+                    st.success("✅ **Inventory Health:** Tidak ada proyeksi stock-out kritis pada filter ini.")
+            
+            # 3. Revenue Insight
+            if total_rev > 0:
+                st.info(f"💰 **Revenue Focus:** Total estimasi revenue sebesar **Rp {total_rev:,.0f}** terkonsentrasi pada `{len(active_months)}` bulan aktif.")
+
+        except Exception as e:
+            st.error(f"Pesan teknis: Insights belum bisa dimuat karena perbedaan struktur kolom.")
+            # st.write(e) # Uncomment ini jika ingin debug lebih dalam
 
 # ============================================================================
 # TAB 3: SUMMARY REPORTS (SIMPLIFIED)
