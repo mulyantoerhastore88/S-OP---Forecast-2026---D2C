@@ -559,7 +559,7 @@ with stylable_container(
     with stat4:
         st.metric("📈 Total Forecast", f"{total_forecast:,.0f}")
 
-# FILTERS SECTION - PERBAIKAN: TAMBAH FILTER BRAND & CHANNEL
+# FILTERS SECTION - DEBUGGING VERSION
 with stylable_container(
     key="filters", 
     css_styles="""
@@ -575,33 +575,55 @@ with stylable_container(
 ):
     st.markdown("### 🔍 Data Filters")
     
-    # PERBAIKAN: Tambah filter untuk Brand dan Channel secara spesifik untuk adjustment
+    # DEBUG: Tampilkan informasi Channel
+    if 'Channel' in all_df.columns:
+        channel_counts = all_df['Channel'].value_counts()
+        st.caption(f"📊 Channel distribution: {dict(channel_counts)}")
+    
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
-        channels = ["ALL"] + sorted(all_df['Channel'].dropna().unique().tolist()) if 'Channel' in all_df.columns else ["ALL"]
-        sel_channel = st.selectbox("🛒 Channel", channels, help="Filter by sales channel")
+        if 'Channel' in all_df.columns:
+            # Dapatkan semua channel, termasuk yang mungkin kosong
+            all_channels = all_df['Channel'].dropna().unique().tolist()
+            
+            # Pastikan Reseller ada dalam daftar
+            if 'Reseller' not in all_channels and 'RESELLER' not in all_channels:
+                # Coba cari dengan case insensitive
+                lower_channels = [str(c).lower() for c in all_channels]
+                if 'reseller' in lower_channels:
+                    idx = lower_channels.index('reseller')
+                    st.warning(f"Found channel: {all_channels[idx]}")
+            
+            channels = ["ALL"] + sorted(all_channels)
+            sel_channel = st.selectbox("🛒 Channel", channels, help="Filter by sales channel")
+            
+            # Debug info
+            if sel_channel != "ALL":
+                count = len(all_df[all_df['Channel'] == sel_channel])
+                st.caption(f"📈 {count} SKUs in {sel_channel}")
+        else:
+            st.error("⚠️ Channel column not found")
+            sel_channel = "ALL"
+
+# Apply filters dengan debugging
+filtered_df = all_df.copy()
+
+# Tampilkan debug info
+debug_expander = st.expander("🔍 Debug Filter Info", expanded=False)
+with debug_expander:
+    st.write(f"**Total records:** {len(all_df)}")
+    if 'Channel' in all_df.columns:
+        st.write(f"**Channel distribution:**")
+        st.write(all_df['Channel'].value_counts())
     
-    with col2:
-        brands = ["ALL"] + sorted(all_df['Brand'].dropna().unique().tolist()) if 'Brand' in all_df.columns else ["ALL"]
-        sel_brand = st.selectbox("🏷️ Brand", brands, help="Filter by brand")
-    
-    with col3:
-        b_groups = ["ALL"] + sorted(all_df['Brand_Group'].dropna().unique().tolist()) if 'Brand_Group' in all_df.columns else ["ALL"]
-        sel_group = st.selectbox("📦 Brand Group", b_groups, help="Filter by brand group")
-    
-    with col4:
-        tiers = ["ALL"] + sorted(all_df['SKU_Tier'].dropna().unique().tolist()) if 'SKU_Tier' in all_df.columns else ["ALL"]
-        sel_tier = st.selectbox("💎 Tier", tiers, help="Filter by SKU tier")
-    
-    with col5:
-        cover_options = ["ALL", "Overstock (>1.5)", "Healthy (0.5-1.5)", "Low (<0.5)", "Out of Stock (0)"]
-        sel_cover = st.selectbox("📦 Stock Cover", cover_options, help="Filter by month's cover stock")
-    
-    with col6:
-        # PERBAIKAN: Filter untuk Product Focus
-        focus_options = ["ALL", "Yes", "No"]
-        sel_focus = st.selectbox("🎯 Product Focus", focus_options, help="Filter by product focus status")
+    if sel_channel != "ALL" and 'Channel' in filtered_df.columns:
+        st.write(f"**Applying filter:** Channel = '{sel_channel}'")
+        before_count = len(filtered_df)
+        filtered_df = filtered_df[filtered_df['Channel'] == sel_channel]
+        after_count = len(filtered_df)
+        st.write(f"**Before:** {before_count}, **After:** {after_count}, **Removed:** {before_count - after_count}")
+
 
 # Apply filters
 filtered_df = all_df.copy()
