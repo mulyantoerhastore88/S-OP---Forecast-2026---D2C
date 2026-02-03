@@ -420,7 +420,7 @@ def calculate_pct(df, months):
     return df_calc
 
 # ============================================================================
-# SIDEBAR WITH IMPROVED UX - PERBAIKAN: TAMBAH OPTION ALL MONTHS
+# SIDEBAR WITH IMPROVED UX
 # ============================================================================
 with st.sidebar:
     st.image("https://www.erhagroup.com/assets/img/logo-erha.png", width=150)
@@ -446,7 +446,7 @@ with st.sidebar:
         help="Select the starting month for your forecasting horizon"
     )
     
-    # PERBAIKAN: Tambah option untuk show all months
+    # Option untuk show all months
     show_all_months = st.checkbox(
         "📅 Show & Adjust All 12 Months",
         value=False,
@@ -559,7 +559,32 @@ with stylable_container(
     with stat4:
         st.metric("📈 Total Forecast", f"{total_forecast:,.0f}")
 
-# FILTERS SECTION - DEBUGGING VERSION
+# ============================================================================
+# DEBUG: TAMPILKAN DATA CHANNEL - PERBAIKAN UTAMA
+# ============================================================================
+with st.expander("🔍 Channel Data Debug", expanded=False):
+    if 'Channel' in all_df.columns:
+        st.write("### Channel Information")
+        
+        # Tampilkan distribusi channel
+        channel_dist = all_df['Channel'].value_counts()
+        st.write("**Channel Distribution:**")
+        st.write(channel_dist)
+        
+        # Tampilkan sample data per channel
+        st.write("**Sample Data per Channel:**")
+        unique_channels = all_df['Channel'].dropna().unique()
+        for channel in unique_channels:
+            channel_data = all_df[all_df['Channel'] == channel].head(2)
+            st.write(f"**{channel}** (Total: {len(all_df[all_df['Channel'] == channel])} SKUs):")
+            st.dataframe(channel_data[['sku_code', 'Product_Name', 'Brand', 'L3M_Avg']], 
+                        hide_index=True, use_container_width=True)
+    else:
+        st.error("⚠️ 'Channel' column not found in data")
+
+# ============================================================================
+# FILTERS SECTION - DENGAN PERBAIKAN UNTUK RESELLER
+# ============================================================================
 with stylable_container(
     key="filters", 
     css_styles="""
@@ -575,72 +600,104 @@ with stylable_container(
 ):
     st.markdown("### 🔍 Data Filters")
     
-    # DEBUG: Tampilkan informasi Channel
+    # Tampilkan informasi Channel sebelum filter
     if 'Channel' in all_df.columns:
         channel_counts = all_df['Channel'].value_counts()
-        st.caption(f"📊 Channel distribution: {dict(channel_counts)}")
+        st.caption(f"📊 Available Channels: {', '.join([f'{k} ({v} SKUs)' for k, v in channel_counts.items()])}")
     
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         if 'Channel' in all_df.columns:
-            # Dapatkan semua channel, termasuk yang mungkin kosong
+            # Get unique channels, handle missing values
             all_channels = all_df['Channel'].dropna().unique().tolist()
             
-            # Pastikan Reseller ada dalam daftar
-            if 'Reseller' not in all_channels and 'RESELLER' not in all_channels:
-                # Coba cari dengan case insensitive
-                lower_channels = [str(c).lower() for c in all_channels]
-                if 'reseller' in lower_channels:
-                    idx = lower_channels.index('reseller')
-                    st.warning(f"Found channel: {all_channels[idx]}")
+            # Debug: check if Reseller exists (case-insensitive)
+            channel_lower = [str(c).lower() for c in all_channels]
+            if 'reseller' in channel_lower:
+                idx = channel_lower.index('reseller')
+                actual_reseller_name = all_channels[idx]
+                st.success(f"✅ Found: '{actual_reseller_name}'")
             
             channels = ["ALL"] + sorted(all_channels)
             sel_channel = st.selectbox("🛒 Channel", channels, help="Filter by sales channel")
             
-            # Debug info
+            # Show count for selected channel
             if sel_channel != "ALL":
                 count = len(all_df[all_df['Channel'] == sel_channel])
-                st.caption(f"📈 {count} SKUs in {sel_channel}")
+                st.caption(f"📈 {count} SKUs")
         else:
             st.error("⚠️ Channel column not found")
             sel_channel = "ALL"
-
-# Apply filters dengan debugging
-filtered_df = all_df.copy()
-
-# Tampilkan debug info
-debug_expander = st.expander("🔍 Debug Filter Info", expanded=False)
-with debug_expander:
-    st.write(f"**Total records:** {len(all_df)}")
-    if 'Channel' in all_df.columns:
-        st.write(f"**Channel distribution:**")
-        st.write(all_df['Channel'].value_counts())
     
-    if sel_channel != "ALL" and 'Channel' in filtered_df.columns:
-        st.write(f"**Applying filter:** Channel = '{sel_channel}'")
-        before_count = len(filtered_df)
-        filtered_df = filtered_df[filtered_df['Channel'] == sel_channel]
-        after_count = len(filtered_df)
-        st.write(f"**Before:** {before_count}, **After:** {after_count}, **Removed:** {before_count - after_count}")
+    with col2:
+        if 'Brand' in all_df.columns:
+            brands = ["ALL"] + sorted(all_df['Brand'].dropna().unique().tolist())
+            sel_brand = st.selectbox("🏷️ Brand", brands, help="Filter by brand")
+        else:
+            sel_brand = "ALL"
+    
+    with col3:
+        if 'Brand_Group' in all_df.columns:
+            b_groups = ["ALL"] + sorted(all_df['Brand_Group'].dropna().unique().tolist())
+            sel_group = st.selectbox("📦 Brand Group", b_groups, help="Filter by brand group")
+        else:
+            sel_group = "ALL"
+    
+    with col4:
+        if 'SKU_Tier' in all_df.columns:
+            tiers = ["ALL"] + sorted(all_df['SKU_Tier'].dropna().unique().tolist())
+            sel_tier = st.selectbox("💎 Tier", tiers, help="Filter by SKU tier")
+        else:
+            sel_tier = "ALL"
+    
+    with col5:
+        cover_options = ["ALL", "Overstock (>1.5)", "Healthy (0.5-1.5)", "Low (<0.5)", "Out of Stock (0)"]
+        sel_cover = st.selectbox("📦 Stock Cover", cover_options, help="Filter by month's cover stock")
+    
+    with col6:
+        if 'Product_Focus' in all_df.columns:
+            focus_options = ["ALL", "Yes", "No"]
+            sel_focus = st.selectbox("🎯 Product Focus", focus_options, help="Filter by product focus status")
+        else:
+            sel_focus = "ALL"
 
-
-# Apply filters
+# ============================================================================
+# APPLY FILTERS - DENGAN DEBUGGING
+# ============================================================================
 filtered_df = all_df.copy()
+filter_log = []
 
+# Apply Channel filter - PERBAIKAN UTAMA
 if sel_channel != "ALL" and 'Channel' in filtered_df.columns:
+    before = len(filtered_df)
     filtered_df = filtered_df[filtered_df['Channel'] == sel_channel]
+    after = len(filtered_df)
+    filter_log.append(f"Channel='{sel_channel}': {before} → {after} rows")
+else:
+    filter_log.append(f"Channel: ALL selected")
 
+# Apply other filters
 if sel_brand != "ALL" and 'Brand' in filtered_df.columns:
+    before = len(filtered_df)
     filtered_df = filtered_df[filtered_df['Brand'] == sel_brand]
+    after = len(filtered_df)
+    filter_log.append(f"Brand='{sel_brand}': {before} → {after} rows")
 
 if sel_group != "ALL" and 'Brand_Group' in filtered_df.columns:
+    before = len(filtered_df)
     filtered_df = filtered_df[filtered_df['Brand_Group'] == sel_group]
+    after = len(filtered_df)
+    filter_log.append(f"Brand_Group='{sel_group}': {before} → {after} rows")
 
 if sel_tier != "ALL" and 'SKU_Tier' in filtered_df.columns:
+    before = len(filtered_df)
     filtered_df = filtered_df[filtered_df['SKU_Tier'] == sel_tier]
+    after = len(filtered_df)
+    filter_log.append(f"SKU_Tier='{sel_tier}': {before} → {after} rows")
 
 if sel_cover != "ALL":
+    before = len(filtered_df)
     if sel_cover == "Overstock (>1.5)":
         filtered_df = filtered_df[filtered_df['Month_Cover'] > 1.5]
     elif sel_cover == "Healthy (0.5-1.5)":
@@ -649,19 +706,37 @@ if sel_cover != "ALL":
         filtered_df = filtered_df[filtered_df['Month_Cover'] < 0.5]
     elif sel_cover == "Out of Stock (0)":
         filtered_df = filtered_df[filtered_df['Month_Cover'] == 0]
+    after = len(filtered_df)
+    filter_log.append(f"Cover='{sel_cover}': {before} → {after} rows")
 
 if sel_focus != "ALL" and 'Product_Focus' in filtered_df.columns:
+    before = len(filtered_df)
     if sel_focus == "Yes":
         filtered_df = filtered_df[filtered_df['Product_Focus'].str.contains('Yes', case=False, na=False)]
     else:
         filtered_df = filtered_df[~filtered_df['Product_Focus'].str.contains('Yes', case=False, na=False)]
+    after = len(filtered_df)
+    filter_log.append(f"Focus='{sel_focus}': {before} → {after} rows")
 
-# Display filter results
-filtered_skus = len(filtered_df)
-if filtered_skus < total_skus:
-    st.success(f"✅ Showing {filtered_skus:,} of {total_skus:,} SKUs ({filtered_skus/total_skus*100:.1f}%)")
+# Show filter results
+if filtered_df.empty:
+    st.warning(f"⚠️ No data matches all filters. Showing all data instead.")
+    filtered_df = all_df.copy()
+    filter_summary = "Showing all data (no filters matched)"
+else:
+    filtered_skus = len(filtered_df)
+    filter_summary = f"✅ Showing {filtered_skus:,} of {total_skus:,} SKUs ({filtered_skus/total_skus*100:.1f}%)"
 
-# Create tabs
+st.info(f"**Filter Summary:** {filter_summary}")
+
+# Debug filter steps
+with st.expander("📋 Filter Steps", expanded=False):
+    for step in filter_log:
+        st.write(f"- {step}")
+
+# ============================================================================
+# CREATE TABS
+# ============================================================================
 tab1, tab2, tab3 = st.tabs([
     "📝 Forecast Worksheet", 
     "📈 Analytics Dashboard", 
@@ -669,7 +744,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ============================================================================
-# TAB 1: FORECAST WORKSHEET - PERBAIKAN: TAMPILKAN SEMUA BULAN SESUAI SETTING
+# TAB 1: FORECAST WORKSHEET
 # ============================================================================
 with tab1:
     if filtered_df.empty:
@@ -702,7 +777,7 @@ with tab1:
         # Process data for worksheet
         edit_df = filtered_df.copy()
         
-        # PERBAIKAN: Calculate percentage hanya untuk adjustment months
+        # Calculate percentage hanya untuk adjustment months
         adjustment_months = st.session_state.get('adjustment_months', [])
         edit_df = calculate_pct(edit_df, adjustment_months)
         
@@ -712,7 +787,7 @@ with tab1:
         # Get horizon months
         horizon_months = st.session_state.get('horizon_months', [])
         
-        # Get historical columns (last 3 months before horizon) - PERBAIKAN: SORT CHRONOLOGICAL
+        # Get historical columns (last 3 months before horizon)
         hist_cols = [c for c in edit_df.columns if re.search(r'^[A-Za-z]{3}-\d{2}$', str(c)) 
                     and c not in horizon_months 
                     and not c.startswith('Cons_') 
@@ -720,7 +795,7 @@ with tab1:
         hist_cols = sort_month_columns(hist_cols)
         
         if hist_cols:
-            hist_cols = hist_cols[-3:]  # Last 3 historical months in correct order
+            hist_cols = hist_cols[-3:]  # Last 3 historical months
         
         # Build column list
         display_cols = base_cols.copy()
@@ -731,10 +806,10 @@ with tab1:
         display_cols.extend(['L3M_Avg', 'Stock_Qty', 'Month_Cover'])
         display_cols.extend(horizon_months)
         
-        # PERBAIKAN: Tambah persentase hanya untuk adjustment months
+        # Tambah persentase hanya untuk adjustment months
         display_cols.extend([f'{m}_%' for m in adjustment_months])
         
-        # PERBAIKAN: Tambah consensus columns untuk semua adjustment months
+        # Tambah consensus columns untuk semua adjustment months
         display_cols.extend([f'Cons_{m}' for m in adjustment_months])
         
         # Remove duplicates and ensure columns exist
@@ -810,6 +885,17 @@ with tab1:
                 
                 if (channel === 'Reseller') return {
                     'color': '#059669',
+                    'fontWeight': 'bold'
+                };
+                
+                // Handle different case variations
+                if (channel.toLowerCase() === 'reseller') return {
+                    'color': '#059669',
+                    'fontWeight': 'bold'
+                };
+                
+                if (channel === 'Clinical') return {
+                    'color': '#8B5CF6',
                     'fontWeight': 'bold'
                 };
                 
@@ -947,9 +1033,8 @@ with tab1:
                           suppressSizeToFit=True,
                           headerName="Month Cover")
         
-        # PERBAIKAN: Sembunyikan bulan-bulan yang tidak dalam adjustment jika mode default
+        # Sembunyikan bulan-bulan yang tidak dalam adjustment jika mode default
         if not show_all_months:
-            # Dalam mode default, sembunyikan bulan M4-M12 dari horizon
             for m in horizon_months:
                 if m not in adjustment_months:
                     gb.configure_column(m, hide=True)
@@ -966,7 +1051,7 @@ with tab1:
                                   flex=1,
                                   suppressSizeToFit=False)
         
-        # PERBAIKAN: Percentage columns hanya untuk adjustment months
+        # Percentage columns hanya untuk adjustment months
         for m in adjustment_months:
             pct_col = f'{m}_%'
             if pct_col in display_cols:
@@ -979,7 +1064,7 @@ with tab1:
                                   maxWidth=100,
                                   suppressSizeToFit=True)
         
-        # PERBAIKAN: Editable consensus columns untuk SEMUA adjustment months
+        # Editable consensus columns untuk SEMUA adjustment months
         for m in adjustment_months:
             cons_col = f'Cons_{m}'
             if cons_col in display_cols:
@@ -1103,7 +1188,7 @@ with tab1:
             )
 
 # ============================================================================
-# TAB 2: ANALYTICS DASHBOARD - PREMIUM VERSION
+# TAB 2: ANALYTICS DASHBOARD
 # ============================================================================
 with tab2:
     # --- Analytics Header ---
@@ -1144,17 +1229,21 @@ with tab2:
     for m in active_months:
         # Source prioritization: Consensus -> Original Horizon Month
         source_col = f'Cons_{m}' if f'Cons_{m}' in calc_df.columns else m
-        calc_df[f'Qty_{m}'] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
-        calc_df[f'Val_{m}'] = calc_df[f'Qty_{m}'] * calc_df.get('floor_price', 0)
+        if source_col in calc_df.columns:
+            calc_df[f'Qty_{m}'] = pd.to_numeric(calc_df[source_col], errors='coerce').fillna(0)
+            calc_df[f'Val_{m}'] = calc_df[f'Qty_{m}'] * calc_df.get('floor_price', 0)
+        else:
+            calc_df[f'Qty_{m}'] = 0
+            calc_df[f'Val_{m}'] = 0
 
     # --- Metrics Section ---
-    total_vol = sum(calc_df[f'Qty_{m}'].sum() for m in active_months)
-    total_rev = sum(calc_df[f'Val_{m}'].sum() for m in active_months)
+    total_vol = sum(calc_df[f'Qty_{m}'].sum() for m in active_months if f'Qty_{m}' in calc_df.columns)
+    total_rev = sum(calc_df[f'Val_{m}'].sum() for m in active_months if f'Val_{m}' in calc_df.columns)
     
     # Comparison M1-M3 vs L3M
     m1_m3 = adjustment_months[:3]
     m1_m3_vol = sum(calc_df[f'Qty_{m}'].sum() for m in m1_m3 if f'Qty_{m}' in calc_df.columns)
-    l3m_total_avg = calc_df['L3M_Avg'].sum() * 3
+    l3m_total_avg = calc_df['L3M_Avg'].sum() * 3 if 'L3M_Avg' in calc_df.columns else 0
     growth_vs_l3m = ((m1_m3_vol / l3m_total_avg) - 1) if l3m_total_avg > 0 else 0
 
     m1, m2, m3 = st.columns(3)
@@ -1177,99 +1266,124 @@ with tab2:
         
         # 1. Prepare Brand Table Data
         brand_data = []
-        for brand in calc_df['Brand'].unique():
-            b_vol = sum(calc_df[calc_df['Brand'] == brand][f'Qty_{m}'].sum() for m in active_months)
-            b_rev = sum(calc_df[calc_df['Brand'] == brand][f'Val_{m}'].sum() for m in active_months)
-            brand_data.append({"Brand": brand, "Volume": b_vol, "Revenue": b_rev})
+        if 'Brand' in calc_df.columns:
+            for brand in calc_df['Brand'].unique():
+                b_vol = sum(calc_df[calc_df['Brand'] == brand][f'Qty_{m}'].sum() for m in active_months if f'Qty_{m}' in calc_df.columns)
+                b_rev = sum(calc_df[calc_df['Brand'] == brand][f'Val_{m}'].sum() for m in active_months if f'Val_{m}' in calc_df.columns)
+                brand_data.append({"Brand": brand, "Volume": b_vol, "Revenue": b_rev})
         
-        brand_summary = pd.DataFrame(brand_data).sort_values("Revenue", ascending=False)
-        brand_summary['Share %'] = (brand_summary['Revenue'] / total_rev * 100).round(1)
-        
-        with col_table:
-            st.markdown("##### 🏆 Ranking by Revenue Share")
-            st.dataframe(
-                brand_summary,
-                column_config={
-                    "Brand": st.column_config.TextColumn("Brand Name"),
-                    "Volume": st.column_config.NumberColumn("Total Qty", format="%d"),
-                    "Revenue": st.column_config.NumberColumn("Total IDR", format="Rp %d"),
-                    "Share %": st.column_config.ProgressColumn("Market Share", min_value=0, max_value=100, format="%.1f%%")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
+        if brand_data:
+            brand_summary = pd.DataFrame(brand_data).sort_values("Revenue", ascending=False)
+            brand_summary['Share %'] = (brand_summary['Revenue'] / total_rev * 100).round(1) if total_rev > 0 else 0
+            
+            with col_table:
+                st.markdown("##### 🏆 Ranking by Revenue Share")
+                st.dataframe(
+                    brand_summary,
+                    column_config={
+                        "Brand": st.column_config.TextColumn("Brand Name"),
+                        "Volume": st.column_config.NumberColumn("Total Qty", format="%d"),
+                        "Revenue": st.column_config.NumberColumn("Total IDR", format="Rp %d"),
+                        "Share %": st.column_config.ProgressColumn("Market Share", min_value=0, max_value=100, format="%.1f%%")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+        else:
+            with col_table:
+                st.warning("No brand data available")
 
         with col_chart:
             st.markdown("##### 📈 Trend Analysis")
-            # Pivot data for chart
-            plot_list = []
-            for m in active_months:
-                temp = calc_df.groupby('Brand')[f'Val_{m}' if val_mode else f'Qty_{m}'].sum().reset_index()
-                temp['Month'] = m
-                temp.columns = ['Brand', 'Value', 'Month']
-                plot_list.append(temp)
-            
-            plot_df = pd.concat(plot_list)
-            
-            fig = px.line(plot_df, x='Month', y='Value', color='Brand', markers=True,
-                         color_discrete_sequence=px.colors.qualitative.Prism)
-            fig.update_layout(
-                margin=dict(l=20, r=20, t=20, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            if 'Brand' in calc_df.columns:
+                # Pivot data for chart
+                plot_list = []
+                for m in active_months:
+                    if f'Val_{m}' if val_mode else f'Qty_{m}' in calc_df.columns:
+                        temp = calc_df.groupby('Brand')[f'Val_{m}' if val_mode else f'Qty_{m}'].sum().reset_index()
+                        temp['Month'] = m
+                        temp.columns = ['Brand', 'Value', 'Month']
+                        plot_list.append(temp)
+                
+                if plot_list:
+                    plot_df = pd.concat(plot_list)
+                    
+                    fig = px.line(plot_df, x='Month', y='Value', color='Brand', markers=True,
+                                 color_discrete_sequence=px.colors.qualitative.Prism)
+                    fig.update_layout(
+                        margin=dict(l=20, r=20, t=20, b=20),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        hovermode="x unified"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No data available for trend analysis")
+            else:
+                st.warning("Brand column not found")
 
     elif chart_view == "Channel Mix":
         st.markdown("##### 🛒 Channel Contribution over Time")
-        chan_list = []
-        for m in active_months:
-            temp = calc_df.groupby('Channel')[f'Val_{m}' if val_mode else f'Qty_{m}'].sum().reset_index()
-            temp['Month'] = m
-            temp.columns = ['Channel', 'Value', 'Month']
-            chan_list.append(temp)
-        
-        chan_df = pd.concat(chan_list)
-        fig = px.bar(chan_df, x='Month', y='Value', color='Channel', 
-                     text_auto='.2s', barmode='group',
-                     color_discrete_map={'E-commerce': '#F97316', 'Reseller': '#0EA5E9', 'Clinical': '#8B5CF6'})
-        st.plotly_chart(fig, use_container_width=True)
+        if 'Channel' in calc_df.columns:
+            chan_list = []
+            for m in active_months:
+                if f'Val_{m}' if val_mode else f'Qty_{m}' in calc_df.columns:
+                    temp = calc_df.groupby('Channel')[f'Val_{m}' if val_mode else f'Qty_{m}'].sum().reset_index()
+                    temp['Month'] = m
+                    temp.columns = ['Channel', 'Value', 'Month']
+                    chan_list.append(temp)
+            
+            if chan_list:
+                chan_df = pd.concat(chan_list)
+                fig = px.bar(chan_df, x='Month', y='Value', color='Channel', 
+                             text_auto='.2s', barmode='group',
+                             color_discrete_map={'E-commerce': '#F97316', 'Reseller': '#0EA5E9', 'Clinical': '#8B5CF6'})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No channel data available")
+        else:
+            st.warning("Channel column not found")
 
     else: # Total Volume View
         st.markdown("##### 📦 Monthly Aggregate Demand")
         agg_data = []
         for m in active_months:
-            agg_data.append({
-                "Month": m,
-                "Value": calc_df[f'Val_{m}' if val_mode else f'Qty_{m}'].sum()
-            })
-        agg_df = pd.DataFrame(agg_data)
+            if f'Val_{m}' if val_mode else f'Qty_{m}' in calc_df.columns:
+                agg_data.append({
+                    "Month": m,
+                    "Value": calc_df[f'Val_{m}' if val_mode else f'Qty_{m}'].sum()
+                })
         
-        fig = px.area(agg_df, x='Month', y='Value', 
-                      color_discrete_sequence=['#1E40AF'],
-                      labels={'Value': 'Revenue (IDR)' if val_mode else 'Volume (Units)'})
-        fig.update_traces(fillcolor="rgba(30, 64, 175, 0.2)", line_width=4)
-        st.plotly_chart(fig, use_container_width=True)
+        if agg_data:
+            agg_df = pd.DataFrame(agg_data)
+            
+            fig = px.area(agg_df, x='Month', y='Value', 
+                          color_discrete_sequence=['#1E40AF'],
+                          labels={'Value': 'Revenue (IDR)' if val_mode else 'Volume (Units)'})
+            fig.update_traces(fillcolor="rgba(30, 64, 175, 0.2)", line_width=4)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No monthly data available")
 
-    # --- Insight Expander (FIXED - ANTI FAIL) ---
+    # --- Insight Expander ---
     with st.expander("💡 Key Strategic Insights", expanded=True):
         try:
-            # 1. Cari SKU Terpopuler berdasarkan total qty yang baru dihitung (total_vol)
-            # Kita cari langsung dari calc_df yang sudah pasti punya kolom Qty_
+            # 1. Cari SKU Terpopuler
             qty_cols_available = [c for c in calc_df.columns if c.startswith('Qty_')]
             
             if qty_cols_available and not calc_df.empty:
-                # Hitung total per baris khusus untuk analisis ini
                 temp_total = calc_df[qty_cols_available].sum(axis=1)
-                top_idx = temp_total.idxmax()
-                top_sku_name = calc_df.loc[top_idx, 'Product_Name']
-                top_sku_val = temp_total.max()
-                
-                st.write(f"🌟 **Leading SKU:** `{top_sku_name}` adalah pendorong volume terbesar dengan proyeksi **{top_sku_val:,.0f} units**.")
+                if not temp_total.empty and temp_total.max() > 0:
+                    top_idx = temp_total.idxmax()
+                    top_sku_name = calc_df.loc[top_idx, 'Product_Name'] if 'Product_Name' in calc_df.columns else f"SKU-{top_idx}"
+                    top_sku_val = temp_total.max()
+                    
+                    st.write(f"🌟 **Leading SKU:** `{top_sku_name}` adalah pendorong volume terbesar dengan proyeksi **{top_sku_val:,.0f} units**.")
+                else:
+                    st.write("🌟 **Leading SKU:** Tidak ada data volume yang signifikan.")
             else:
                 st.write("🌟 **Leading SKU:** Belum ada data volume yang terhitung.")
 
-            # 2. Analisis Stok (Gunakan kolom Month_Cover yang sudah ada dari loader)
+            # 2. Analisis Stok
             if 'Month_Cover' in calc_df.columns:
                 low_stock_count = len(calc_df[calc_df['Month_Cover'] < 0.5])
                 if low_stock_count > 0:
@@ -1283,10 +1397,9 @@ with tab2:
 
         except Exception as e:
             st.error(f"Pesan teknis: Insights belum bisa dimuat karena perbedaan struktur kolom.")
-            # st.write(e) # Uncomment ini jika ingin debug lebih dalam
 
 # ============================================================================
-# TAB 3: SUMMARY REPORTS - EXECUTIVE PRESENTATION (SAFE MODE)
+# TAB 3: SUMMARY REPORTS
 # ============================================================================
 with tab3:
     st.markdown("### 📋 Executive Summary Reports")
@@ -1296,7 +1409,7 @@ with tab3:
     if report_df.empty:
         st.warning("Data kosong. Silakan sesuaikan filter.")
     else:
-        # --- PERBAIKAN FATAL: Hitung ulang Total_Forecast agar tidak KeyError ---
+        # Hitung ulang Total_Forecast
         adj_cols = [f'Cons_{m}' for m in adjustment_months if f'Cons_{m}' in report_df.columns]
         # Jika kolom Cons_ belum ada (belum diedit), gunakan kolom bulan asli
         if not adj_cols:
@@ -1304,18 +1417,21 @@ with tab3:
         
         # Buat kolom temporary untuk sorting di Tab 3
         report_df = report_df.copy()
-        report_df['Temp_Total'] = report_df[adj_cols].sum(axis=1)
+        if adj_cols:
+            report_df['Temp_Total'] = report_df[adj_cols].sum(axis=1)
+        else:
+            report_df['Temp_Total'] = 0
         
         # --- Metrics Calculation ---
         total_f_qty = report_df['Temp_Total'].sum()
-        total_l3m_qty = (report_df['L3M_Avg'].sum() * len(adjustment_months))
+        total_l3m_qty = (report_df['L3M_Avg'].sum() * len(adjustment_months)) if 'L3M_Avg' in report_df.columns else 0
         growth_pct = ((total_f_qty / total_l3m_qty) - 1) * 100 if total_l3m_qty > 0 else 0
 
         r1, r2 = st.columns([2, 1])
         with r1:
             st.info(f"💡 **S&OP Perspective:** Forecast periode ini menunjukkan tren **{'Naik' if growth_pct > 0 else 'Turun'} {abs(growth_pct):.1f}%** dibandingkan rata-rata penjualan 3 bulan terakhir.")
         
-        # 1. Top 10 SKU (Menggunakan Temp_Total agar tidak error)
+        # 1. Top 10 SKU
         st.markdown("#### 🎯 Focus Area: Top SKU Contribution")
         top_10_skus = report_df.nlargest(10, 'Temp_Total')
         
@@ -1334,22 +1450,28 @@ with tab3:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("##### 📦 Inventory Risk Matrix")
-            risk_counts = {
-                "Critical Out (MoS < 0.5)": len(report_df[report_df['Month_Cover'] < 0.5]),
-                "Understock (0.5 - 1.0)": len(report_df[(report_df['Month_Cover'] >= 0.5) & (report_df['Month_Cover'] < 1.0)]),
-                "Optimal (1.0 - 1.5)": len(report_df[(report_df['Month_Cover'] >= 1.0) & (report_df['Month_Cover'] <= 1.5)]),
-                "Overstock (> 1.5)": len(report_df[report_df['Month_Cover'] > 1.5])
-            }
-            for label, count in risk_counts.items():
-                color = "red" if "Critical" in label else "orange" if "Under" in label else "green" if "Optimal" in label else "blue"
-                st.markdown(f"- **{label}**: :{color}[{count} SKUs]")
+            if 'Month_Cover' in report_df.columns:
+                risk_counts = {
+                    "Critical Out (MoS < 0.5)": len(report_df[report_df['Month_Cover'] < 0.5]),
+                    "Understock (0.5 - 1.0)": len(report_df[(report_df['Month_Cover'] >= 0.5) & (report_df['Month_Cover'] < 1.0)]),
+                    "Optimal (1.0 - 1.5)": len(report_df[(report_df['Month_Cover'] >= 1.0) & (report_df['Month_Cover'] <= 1.5)]),
+                    "Overstock (> 1.5)": len(report_df[report_df['Month_Cover'] > 1.5])
+                }
+                for label, count in risk_counts.items():
+                    color = "red" if "Critical" in label else "orange" if "Under" in label else "green" if "Optimal" in label else "blue"
+                    st.markdown(f"- **{label}**: :{color}[{count} SKUs]")
+            else:
+                st.warning("Month_Cover column not found")
 
         with c2:
             st.markdown("##### 🏷️ Brand Concentration")
-            brand_pie = px.pie(report_df, values='Temp_Total', names='Brand', hole=0.4,
-                             color_discrete_sequence=px.colors.qualitative.Safe)
-            brand_pie.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200, showlegend=False)
-            st.plotly_chart(brand_pie, use_container_width=True)
+            if 'Brand' in report_df.columns and 'Temp_Total' in report_df.columns:
+                brand_pie = px.pie(report_df, values='Temp_Total', names='Brand', hole=0.4,
+                                 color_discrete_sequence=px.colors.qualitative.Safe)
+                brand_pie.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200, showlegend=False)
+                st.plotly_chart(brand_pie, use_container_width=True)
+            else:
+                st.warning("Brand or Temp_Total column not found")
 
 
 # ============================================================================
